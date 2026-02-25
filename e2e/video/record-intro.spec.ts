@@ -9,7 +9,7 @@
  *   cd e2e && bunx playwright test video/record-intro.spec.ts
  *
  * Output:
- *   test-results/record-intro-*/video.webm
+ *   test-results/record-intro-{hash}/video.webm
  *   Convert to MP4: ffmpeg -i video.webm -c:v libx264 -crf 20 purestat-intro.mp4
  */
 import { test, type Page } from '@playwright/test';
@@ -94,14 +94,11 @@ async function typeSlowly(page: Page, selector: string, text: string, delayMs = 
 // ---------------------------------------------------------------------------
 
 test.describe('Purestat Intro Video', () => {
-  test.use({
-    video: { mode: 'on', size: { width: 1280, height: 720 } },
-    viewport: { width: 1280, height: 720 },
-    launchOptions: { slowMo: 80 },
-  });
-
   test('record full intro walkthrough', async ({ page }) => {
     test.setTimeout(300_000); // 5 minutes max
+
+    // Unique suffix to avoid conflicts with previous runs
+    const suffix = Date.now().toString().slice(-6);
 
     await injectOverlay(page);
 
@@ -131,13 +128,21 @@ test.describe('Purestat Intro Video', () => {
     await caption(page, 2);
 
     // Fill registration form with visible typing
-    await typeSlowly(page, 'input[type="email"]', 'demo@purestat.ai');
+    const emailField = page.getByLabel('Email');
+    await emailField.click();
+    await emailField.pressSequentially(`demo${suffix}@purestat.ai`, { delay: 60 });
     await delay(page, 300);
-    await typeSlowly(page, 'input:below(:text("Username"))', 'demo');
+    const usernameField = page.getByLabel('Username');
+    await usernameField.click();
+    await usernameField.pressSequentially(`demo${suffix}`, { delay: 60 });
     await delay(page, 300);
-    await typeSlowly(page, 'input:below(:text("Display name"))', 'Alex Demo');
+    const displayNameField = page.getByLabel('Display name');
+    await displayNameField.click();
+    await displayNameField.pressSequentially('Alex Demo', { delay: 60 });
     await delay(page, 300);
-    await typeSlowly(page, 'input[type="password"]', 'SecureP@ss123');
+    const passwordField = page.getByLabel('Password', { exact: true });
+    await passwordField.click();
+    await passwordField.pressSequentially('SecureP@ss123', { delay: 60 });
     await delay(page, 500);
 
     await page.getByRole('button', { name: 'Create Account' }).click();
@@ -150,16 +155,17 @@ test.describe('Purestat Intro Video', () => {
     await injectOverlay(page);
     await caption(page, 3);
 
-    await page.getByRole('button', { name: /create/i }).click();
+    await page.getByRole('button', { name: /create organization/i }).first().click();
     await delay(page, 500);
-    await typeSlowly(page, 'input:below(:text("Organization"))', 'Acme Analytics');
+    const orgNameInput = page.getByLabel('Organization name');
+    await orgNameInput.waitFor({ state: 'visible', timeout: 5_000 });
+    await orgNameInput.click();
+    await orgNameInput.pressSequentially(`Acme Analytics ${suffix}`, { delay: 60 });
     await delay(page, 500);
-    await page.getByRole('button', { name: /create/i }).last().click();
-    await delay(page, 1500);
+    await page.getByRole('button', { name: /^create$/i }).click();
 
-    // Navigate to sites
-    const orgLink = page.locator('a:has-text("Acme Analytics")').first();
-    await orgLink.click();
+    // App auto-navigates to /org/:orgId/sites after creation
+    await page.waitForURL(/\/org\/[^/]+\/sites/, { timeout: 15_000 });
     await page.waitForLoadState('networkidle');
     await delay(page, 800);
 
@@ -169,20 +175,28 @@ test.describe('Purestat Intro Video', () => {
     await injectOverlay(page);
     await caption(page, 4);
 
-    await page.getByRole('button', { name: /add site/i }).click();
+    await page.getByRole('button', { name: /add site/i }).first().click();
     await delay(page, 500);
-    await typeSlowly(page, 'input:below(:text("Domain"))', 'acme.com');
+    const domainInput = page.getByLabel('Domain');
+    await domainInput.waitFor({ state: 'visible', timeout: 5_000 });
+    await domainInput.click();
+    await domainInput.pressSequentially(`acme-${suffix}.com`, { delay: 60 });
     await delay(page, 300);
 
     // Fill site name if visible
-    const siteNameInput = page.locator('input:below(:text("Site name"))').first();
+    const siteNameInput = page.getByLabel('Site name');
     if (await siteNameInput.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await typeSlowly(page, 'input:below(:text("Site name"))', 'Acme Website');
+      await siteNameInput.click();
+      await siteNameInput.pressSequentially('Acme Website', { delay: 60 });
       await delay(page, 300);
     }
 
-    await page.getByRole('button', { name: /create|save/i }).last().click();
-    await delay(page, 1500);
+    await page.getByRole('button', { name: /^create$/i }).click();
+
+    // App auto-navigates to /org/:orgId/site/:siteId (dashboard) after creation
+    await page.waitForURL(/\/org\/[^/]+\/site\/[^/]+/, { timeout: 15_000 });
+    await page.waitForLoadState('networkidle');
+    await delay(page, 1000);
 
     // -----------------------------------------------------------------------
     // Scene 5: View tracking code in site settings
@@ -292,17 +306,19 @@ test.describe('Purestat Intro Video', () => {
       await createGoalBtn.click();
       await delay(page, 500);
 
-      // Fill goal form
-      const goalNameInput = page.getByLabel(/goal name|name/i).first();
-      if (await goalNameInput.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await typeSlowly(page, 'input:below(:text("Goal name"))', 'Signup');
+      // Fill goal name
+      const goalNameInput = page.getByLabel(/goal name/i).first();
+      if (await goalNameInput.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await goalNameInput.click();
+        await goalNameInput.pressSequentially('Signup', { delay: 60 });
         await delay(page, 300);
       }
 
-      // Select custom event type (should be default)
+      // Fill event name (custom event type is default)
       const eventNameInput = page.getByLabel(/event name/i).first();
       if (await eventNameInput.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await typeSlowly(page, 'input:below(:text("Event name"))', 'signup');
+        await eventNameInput.click();
+        await eventNameInput.pressSequentially('signup', { delay: 60 });
         await delay(page, 300);
       }
 
@@ -335,7 +351,8 @@ test.describe('Purestat Intro Video', () => {
 
       const emailInput = page.getByLabel(/email/i).first();
       if (await emailInput.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await typeSlowly(page, 'input:below(:text("Email"))', 'teammate@acme.com');
+        await emailInput.click();
+        await emailInput.pressSequentially('teammate@acme.com', { delay: 60 });
         await delay(page, 500);
       }
 
