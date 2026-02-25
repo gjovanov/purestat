@@ -1,0 +1,63 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/config",
+    "crates/db",
+    "crates/services",
+    "crates/api",
+    "crates/tracker",
+    "crates/tests",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Goran Jovanov <gjovanov@gmail.com>"]
+license = "MIT"
+
+[workspace.dependencies]
+# Async
+tokio = { version = "1", features = ["full"] }
+# Web
+axum = { version = "0.8", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# MongoDB
+mongodb = "3.2"
+bson = { version = "2", features = ["chrono-0_4", "serde_with"] }
+# ClickHouse
+clickhouse = { version = "0.13", features = ["native-tls", "time"] }
+# Auth
+jsonwebtoken = { version = "9", features = ["use_pem"] }
+argon2 = "0.5"
+password-hash = { version = "0.5", features = ["getrandom"] }
+# Config
+config = "0.14"
+dotenvy = "0.15"
+# Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+# Hashing (privacy)
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+# Misc
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.9"
+nanoid = "0.4"
+thiserror = "2"
+anyhow = "1"
+validator = { version = "0.18", features = ["derive"] }
+# Redis
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+# Testing
+tokio-test = "0.4"
+# Misc
+futures = "0.3"
+urlencoding = "2"

@@ -1,0 +1,91 @@
+{
+  "app": {
+    "name": "Purestat",
+    "tagline": "Pure, clean, honest stats"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "sites": "Sites",
+    "goals": "Goals",
+    "members": "Members",
+    "billing": "Billing",
+    "settings": "Settings",
+    "apiKeys": "API Keys",
+    "login": "Login",
+    "register": "Register",
+    "logout": "Logout"
+  },
+  "auth": {
+    "email": "Email",
+    "password": "Password",
+    "username": "Username",
+    "displayName": "Display name",
+    "loginTitle": "Welcome back",
+    "loginSubtitle": "Sign in to your account",
+    "registerTitle": "Get started",
+    "registerSubtitle": "Create your free account",
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?",
+    "forgotPassword": "Forgot password?",
+    "orContinueWith": "Or continue with"
+  },
+  "org": {
+    "create": "Create Organization",
+    "name": "Organization name",
+    "slug": "URL slug",
+    "plan": "Plan",
+    "members": "Members",
+    "noOrgs": "No organizations yet"
+  },
+  "site": {
+    "add": "Add Site",
+    "domain": "Domain",
+    "name": "Site name",
+    "timezone": "Timezone",
+    "trackingCode": "Tracking Code",
+    "trackingInstructions": "Add this script to your website's <head> tag:",
+    "noSites": "No sites yet"
+  },
+  "dashboard": {
+    "visitors": "Visitors",
+    "pageviews": "Pageviews",
+    "bounceRate": "Bounce Rate",
+    "visitDuration": "Avg. Duration",
+    "currentVisitors": "current visitors",
+    "topSources": "Top Sources",
+    "topPages": "Top Pages",
+    "locations": "Locations",
+    "devices": "Devices",
+    "goals": "Goals / Conversions"
+  },
+  "goals": {
+    "create": "Create Goal",
+    "name": "Goal name",
+    "type": "Goal type",
+    "pageview": "Pageview",
+    "customEvent": "Custom Event",
+    "eventName": "Event name",
+    "pagePath": "Page path",
+    "conversions": "Conversions",
+    "conversionRate": "CR"
+  },
+  "billing": {
+    "currentPlan": "Current Plan",
+    "upgrade": "Upgrade",
+    "manageBilling": "Manage Billing",
+    "free": "Free",
+    "pro": "Pro",
+    "business": "Business"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "loading": "Loading...",
+    "confirm": "Are you sure?",
+    "copy": "Copy",
+    "copied": "Copied!"
+  }
+}

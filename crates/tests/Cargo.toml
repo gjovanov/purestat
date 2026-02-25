@@ -1,0 +1,22 @@
+[package]
+name = "purestat-tests"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+purestat-config = { path = "../config" }
+purestat-db = { path = "../db" }
+purestat-services = { path = "../services" }
+purestat-api = { path = "../api" }
+tokio.workspace = true
+tokio-test.workspace = true
+reqwest = { workspace = true, features = ["cookies"] }
+serde.workspace = true
+serde_json.workspace = true
+bson.workspace = true
+chrono.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+tracing.workspace = true

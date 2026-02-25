@@ -1,0 +1,33 @@
+[package]
+name = "purestat-tracker"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "purestat-tracker"
+path = "src/main.rs"
+
+[dependencies]
+purestat-config = { path = "../config" }
+purestat-db = { path = "../db" }
+purestat-services = { path = "../services" }
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clickhouse.workspace = true
+sha2.workspace = true
+hmac.workspace = true
+hex.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+dotenvy.workspace = true
+anyhow.workspace = true
+redis.workspace = true
+url = "2"
+time = "0.3"

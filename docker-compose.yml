@@ -1,0 +1,32 @@
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27020:27017"
+    volumes:
+      - purestat_mongo_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: purestat
+      MONGO_INITDB_ROOT_PASSWORD: PureStat_5ecretPa55
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24
+    ports:
+      - "8123:8123"
+      - "9900:9000"
+    volumes:
+      - purestat_clickhouse_data:/var/lib/clickhouse
+      - ./scripts/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      CLICKHOUSE_DB: purestat
+      CLICKHOUSE_USER: purestat
+      CLICKHOUSE_PASSWORD: purestat_ch_pass
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+
+volumes:
+  purestat_mongo_data:
+  purestat_clickhouse_data:

@@ -1,0 +1,17 @@
+{$DOMAIN:purestat.ai} {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle /js/* {
+		reverse_proxy tracker:3001
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

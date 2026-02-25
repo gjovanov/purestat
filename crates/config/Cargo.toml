@@ -1,0 +1,11 @@
+[package]
+name = "purestat-config"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+config.workspace = true
+serde.workspace = true
+dotenvy.workspace = true

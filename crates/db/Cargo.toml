@@ -1,0 +1,20 @@
+[package]
+name = "purestat-db"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+purestat-config = { path = "../config" }
+mongodb.workspace = true
+bson.workspace = true
+clickhouse.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+time = "0.3"

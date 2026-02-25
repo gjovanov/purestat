@@ -1,0 +1,127 @@
+services:
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: purestat
+      MONGO_INITDB_ROOT_PASSWORD: PureStat_5ecretPa55
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "-u", "purestat", "-p", "PureStat_5ecretPa55", "--authenticationDatabase", "admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24
+    environment:
+      CLICKHOUSE_DB: purestat
+      CLICKHOUSE_USER: purestat
+      CLICKHOUSE_PASSWORD: purestat_ch_pass
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./scripts/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      mongo:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PURESTAT__APP__HOST: 0.0.0.0
+      PURESTAT__APP__PORT: "3000"
+      PURESTAT__APP__FRONTEND_URL: https://${DOMAIN:-purestat.ai}
+      PURESTAT__DATABASE__URL: mongodb://purestat:PureStat_5ecretPa55@mongo:27017/purestat?authSource=admin
+      PURESTAT__DATABASE__NAME: purestat
+      PURESTAT__CLICKHOUSE__URL: http://clickhouse:8123
+      PURESTAT__CLICKHOUSE__DATABASE: purestat
+      PURESTAT__CLICKHOUSE__USER: purestat
+      PURESTAT__CLICKHOUSE__PASSWORD: purestat_ch_pass
+      PURESTAT__JWT__SECRET: ${JWT_SECRET:-change-me-in-production}
+      PURESTAT__JWT__ACCESS_TOKEN_TTL_SECS: "86400"
+      PURESTAT__JWT__REFRESH_TOKEN_TTL_SECS: "604800"
+      PURESTAT__JWT__ISSUER: purestat
+      PURESTAT__REDIS__URL: redis://redis:6379
+      PURESTAT__TRACKER__HOST: 0.0.0.0
+      PURESTAT__TRACKER__PORT: "3001"
+      PURESTAT__TRACKER__BATCH_SIZE: "100"
+      PURESTAT__TRACKER__FLUSH_INTERVAL_MS: "5000"
+      PURESTAT__PRIVACY__SALT_TTL_HOURS: "48"
+      PURESTAT__PRIVACY__SESSION_TIMEOUT_MINUTES: "30"
+
+  tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["purestat-tracker"]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PURESTAT__CLICKHOUSE__URL: http://clickhouse:8123
+      PURESTAT__CLICKHOUSE__DATABASE: purestat
+      PURESTAT__CLICKHOUSE__USER: purestat
+      PURESTAT__CLICKHOUSE__PASSWORD: purestat_ch_pass
+      PURESTAT__REDIS__URL: redis://redis:6379
+      PURESTAT__TRACKER__HOST: 0.0.0.0
+      PURESTAT__TRACKER__PORT: "3001"
+      PURESTAT__TRACKER__BATCH_SIZE: "100"
+      PURESTAT__TRACKER__FLUSH_INTERVAL_MS: "5000"
+      PURESTAT__PRIVACY__SALT_TTL_HOURS: "48"
+      PURESTAT__PRIVACY__SESSION_TIMEOUT_MINUTES: "30"
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-purestat.ai}
+    volumes:
+      - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - ui_dist:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - tracker
+      - ui-build
+
+  ui-build:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    volumes:
+      - ui_dist:/srv-out
+    entrypoint: ["/bin/sh", "-c", "cp -r /srv/* /srv-out/ && echo 'UI files copied' && sleep infinity"]
+
+volumes:
+  mongo_data:
+  clickhouse_data:
+  caddy_data:
+  caddy_config:
+  ui_dist:
