@@ -12,6 +12,16 @@
 
 ---
 
+<p align="center">
+  <a href="purestat-intro.mp4">
+    <img src="https://img.shields.io/badge/%E2%96%B6%20Watch-Intro%20Video%20(1%3A44)-6366F1?style=for-the-badge" alt="Watch Intro Video" />
+  </a>
+</p>
+
+> **Intro Video**: See the full product walkthrough in [`purestat-intro.mp4`](purestat-intro.mp4) — registration, org setup, site tracking, dashboard, goals, team invites, and billing in under 2 minutes.
+
+---
+
 **Purestat** is a privacy-first, cookie-free web analytics platform that gives you accurate website insights without compromising your visitors' privacy. Built with Rust for performance and reliability, it serves as a self-hostable alternative to Plausible and Fathom.
 
 ## Features
