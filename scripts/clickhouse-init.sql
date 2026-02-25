@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS events (
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (site_id, date, visitor_hash, session_id, timestamp)
-TTL timestamp + INTERVAL 2 YEAR;
+TTL date + INTERVAL 2 YEAR;
 
 -- Sessions table: aggregated session-level data
 CREATE TABLE IF NOT EXISTS sessions (
@@ -64,4 +64,4 @@ CREATE TABLE IF NOT EXISTS sessions (
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(started_at)
 ORDER BY (site_id, date, visitor_hash, session_id)
-TTL started_at + INTERVAL 2 YEAR;
+TTL date + INTERVAL 2 YEAR;

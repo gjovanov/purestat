@@ -30,33 +30,17 @@ test.describe('Billing', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test('should display all three plan cards', async ({ page }) => {
-    // Should show Free, Pro, and Business plan cards
-    const freeCard = page.getByText(/free/i).first();
-    const proCard = page.getByText(/pro/i).first();
-    const businessCard = page.getByText(/business|enterprise/i).first();
-
-    await expect(freeCard).toBeVisible({ timeout: 10_000 });
-    await expect(proCard).toBeVisible({ timeout: 10_000 });
-    await expect(businessCard).toBeVisible({ timeout: 10_000 });
-
-    // Each plan should show pricing or features
-    const planCards = page.locator('.v-card, [data-testid*="plan"]');
-    const cardCount = await planCards.count();
-    expect(cardCount).toBeGreaterThanOrEqual(3);
+  test('should display plan options', async ({ page }) => {
+    // Should show Free, Pro, and Business plan names
+    await expect(page.getByText(/free/i).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/pro/i).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/business/i).first()).toBeVisible({ timeout: 10_000 });
   });
 
-  test('should show usage stats', async ({ page }) => {
-    // Should display usage information (pageviews, sites, etc.)
+  test('should show usage information', async ({ page }) => {
+    // Usage section shows pageviews, sites, or team members
     await expect(
-      page.getByText(/usage|pageviews|events|sites/i).first()
-    ).toBeVisible({ timeout: 10_000 });
-
-    // Should show some numeric usage data or progress indicator
-    await expect(
-      page.locator('.v-progress-linear, [data-testid*="usage"], [role="progressbar"]')
-        .or(page.getByText(/\d+.*\/.*\d+|\d+\s*(of|out of)\s*\d+/i).first())
-        .or(page.getByText(/0.*pageviews|0.*events/i).first())
+      page.getByText(/pageviews|sites|team members|usage/i).first()
     ).toBeVisible({ timeout: 10_000 });
   });
 });

@@ -8,7 +8,9 @@ pub struct Settings {
     pub clickhouse: ClickHouseSettings,
     pub jwt: JwtSettings,
     pub redis: RedisSettings,
+    #[serde(default)]
     pub oauth: OAuthSettings,
+    #[serde(default)]
     pub stripe: StripeSettings,
     pub tracker: TrackerSettings,
     pub privacy: PrivacySettings,
@@ -50,7 +52,7 @@ pub struct RedisSettings {
     pub url: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct OAuthSettings {
     pub google: Option<OAuthProviderSettings>,
     pub facebook: Option<OAuthProviderSettings>,
@@ -66,11 +68,15 @@ pub struct OAuthProviderSettings {
     pub redirect_uri: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct StripeSettings {
+    #[serde(default)]
     pub secret_key: String,
+    #[serde(default)]
     pub webhook_secret: String,
+    #[serde(default)]
     pub pro_price_id: String,
+    #[serde(default)]
     pub business_price_id: String,
 }
 
@@ -119,11 +125,7 @@ impl Settings {
             // Redis defaults
             .set_default("redis.url", "redis://localhost:6380")?
             // OAuth defaults (None by default — optional)
-            // Stripe defaults
-            .set_default("stripe.secret_key", "")?
-            .set_default("stripe.webhook_secret", "")?
-            .set_default("stripe.pro_price_id", "")?
-            .set_default("stripe.business_price_id", "")?
+            // Stripe defaults (empty by default — optional)
             // Tracker defaults
             .set_default("tracker.host", "0.0.0.0")?
             .set_default("tracker.port", 3001)?
