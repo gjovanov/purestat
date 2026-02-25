@@ -169,23 +169,37 @@ impl QueryService {
                 timeseries: Some(timeseries),
             })
         } else {
-            // Aggregate metrics only
+            // Aggregate metrics only — always query the standard set from events table
             let sql = format!(
-                "SELECT {metrics_sql} FROM events WHERE {where_clause}"
+                "SELECT uniq(visitor_hash) as visitors, count() as pageviews FROM events WHERE {where_clause}"
             );
 
             let row = self
                 .client
                 .query(&sql)
-                .fetch_one::<AggregateRow>()
+                .fetch_one::<BaseAggregateRow>()
                 .await?;
+
+            // Bounce rate and visit duration require the sessions table
+            let session_sql = format!(
+                "SELECT round(countIf(is_bounce = 1) / count() * 100, 1) as bounce_rate, round(avg(duration), 0) as visit_duration FROM sessions WHERE {where_clause}"
+            );
+            let session_row = self
+                .client
+                .query(&session_sql)
+                .fetch_one::<SessionAggregateRow>()
+                .await
+                .unwrap_or(SessionAggregateRow {
+                    bounce_rate: 0.0,
+                    visit_duration: 0.0,
+                });
 
             Ok(StatsResult {
                 metrics: serde_json::json!({
                     "visitors": row.visitors,
                     "pageviews": row.pageviews,
-                    "bounce_rate": row.bounce_rate,
-                    "visit_duration": row.visit_duration,
+                    "bounce_rate": session_row.bounce_rate,
+                    "visit_duration": session_row.visit_duration,
                 }),
                 dimensions: None,
                 timeseries: None,
@@ -280,11 +294,13 @@ struct TimeseriesRow {
 }
 
 #[derive(Debug, clickhouse::Row, Deserialize)]
-struct AggregateRow {
+struct BaseAggregateRow {
     visitors: u64,
     pageviews: u64,
-    #[serde(default)]
+}
+
+#[derive(Debug, clickhouse::Row, Deserialize)]
+struct SessionAggregateRow {
     bounce_rate: f64,
-    #[serde(default)]
     visit_duration: f64,
 }
