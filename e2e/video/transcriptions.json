@@ -1,0 +1,62 @@
+[
+  {
+    "scene": 1,
+    "text": "Welcome to Purestat — where your stats come clean.",
+    "duration": 4000
+  },
+  {
+    "scene": 2,
+    "text": "Creating your account faster than you can say GDPR.",
+    "duration": 5000
+  },
+  {
+    "scene": 3,
+    "text": "Time to set up shop. Every empire needs a name.",
+    "duration": 4000
+  },
+  {
+    "scene": 4,
+    "text": "Drop your domain, we'll handle the rest. No cookies, no drama.",
+    "duration": 5000
+  },
+  {
+    "scene": 5,
+    "text": "One script tag. That's it. Your site just lost 72KB of baggage.",
+    "duration": 5000
+  },
+  {
+    "scene": 6,
+    "text": "Let's fast-forward... traffic is rolling in.",
+    "duration": 3000
+  },
+  {
+    "scene": 7,
+    "text": "Show me the money! Well, the stats. Same thing.",
+    "duration": 5000
+  },
+  {
+    "scene": 8,
+    "text": "Who's visiting? Where from? We know. Anonymously, of course.",
+    "duration": 5000
+  },
+  {
+    "scene": 9,
+    "text": "Set a goal. Track conversions. Celebrate responsibly.",
+    "duration": 5000
+  },
+  {
+    "scene": 10,
+    "text": "Sharing is caring. Invite your team, no extra cookies required.",
+    "duration": 4000
+  },
+  {
+    "scene": 11,
+    "text": "Freemium to start, scale when ready. Your wallet stays happy.",
+    "duration": 4000
+  },
+  {
+    "scene": 12,
+    "text": "Purestat. Pure, clean, honest stats. Period.",
+    "duration": 5000
+  }
+]
