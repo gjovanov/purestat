@@ -14,6 +14,7 @@ pub struct Settings {
     pub stripe: StripeSettings,
     pub tracker: TrackerSettings,
     pub privacy: PrivacySettings,
+    pub geo: GeoSettings,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -94,6 +95,11 @@ pub struct PrivacySettings {
     pub session_timeout_minutes: u64,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct GeoSettings {
+    pub geoip_db_path: String,
+}
+
 impl Settings {
     pub fn load() -> Result<Self, ConfigError> {
         let config = Config::builder()
@@ -134,6 +140,8 @@ impl Settings {
             // Privacy defaults
             .set_default("privacy.salt_ttl_hours", 48)?
             .set_default("privacy.session_timeout_minutes", 30)?
+            // Geo defaults
+            .set_default("geo.geoip_db_path", "/data/geoip/GeoLite2-City.mmdb")?
             .build()?;
 
         config.try_deserialize()

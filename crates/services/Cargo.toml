@@ -31,4 +31,5 @@ reqwest.workspace = true
 validator.workspace = true
 anyhow.workspace = true
 futures.workspace = true
+maxminddb.workspace = true
 time = "0.3"

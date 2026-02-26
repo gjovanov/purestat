@@ -86,7 +86,31 @@ pub async fn ingest(
     // Parse device info from user agent (simplified)
     let (browser, os, device_type) = parse_user_agent(&user_agent);
 
-    let session_id = format!("{}-{}", visitor_hash.get(..16).unwrap_or(""), "session");
+    // GeoIP lookup
+    let geo = state.geo.lookup(&ip);
+
+    // Session tracking
+    let session_data = purestat_services::analytics::session::EventSessionData {
+        site_id,
+        visitor_hash: visitor_hash.clone(),
+        event_name: body.name.clone(),
+        path: path.clone(),
+        referrer: referrer.clone(),
+        referrer_source: referrer_source.clone(),
+        country: geo.country.clone(),
+        browser: browser.clone(),
+        os: os.clone(),
+        device_type: device_type.clone(),
+    };
+    let session_id = state
+        .session
+        .track_event(&session_data)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "Session tracking failed, using fallback");
+            format!("{}-{}", visitor_hash.get(..16).unwrap_or(""), "fallback")
+        });
+
     let event_name = body.name.clone();
     let is_pageview = body.name == "pageview";
 
@@ -105,9 +129,9 @@ pub async fn ingest(
         utm_campaign: String::new(),
         utm_content: String::new(),
         utm_term: String::new(),
-        country: String::new(),
-        region: String::new(),
-        city: String::new(),
+        country: geo.country,
+        region: geo.region,
+        city: geo.city,
         browser,
         browser_version: String::new(),
         os,

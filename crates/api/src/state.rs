@@ -1,10 +1,12 @@
 use clickhouse::Client;
 use mongodb::Database;
 use purestat_config::Settings;
+use purestat_services::analytics::geo::GeoService;
 use purestat_services::analytics::ingest::IngestService;
 use purestat_services::analytics::privacy::PrivacyEngine;
 use purestat_services::analytics::query::QueryService;
 use purestat_services::analytics::realtime::RealtimeService;
+use purestat_services::analytics::session::SessionService;
 use purestat_services::export::ExportService;
 use purestat_services::stripe::StripeService;
 use purestat_services::{
@@ -30,6 +32,8 @@ pub struct AppState {
     pub export: Arc<ExportService>,
     pub stripe: Arc<StripeService>,
     pub privacy: Arc<PrivacyEngine>,
+    pub geo: Arc<GeoService>,
+    pub session: Arc<SessionService>,
 }
 
 impl AppState {
@@ -56,8 +60,18 @@ impl AppState {
 
         let query = Arc::new(QueryService::new(ch.clone()));
         let realtime = Arc::new(RealtimeService::new(ch.clone()));
-        let export = Arc::new(ExportService::new(ch));
+        let export = Arc::new(ExportService::new(ch.clone()));
         let stripe = Arc::new(StripeService::new(settings.stripe.clone()));
+
+        let geo = Arc::new(GeoService::new(&settings.geo.geoip_db_path));
+
+        let session = Arc::new(SessionService::new(
+            redis.clone(),
+            ch,
+            settings.privacy.session_timeout_minutes,
+        ));
+        session.start_session_sweeper(60);
+
         let privacy = Arc::new(PrivacyEngine::new(
             redis,
             settings.privacy.salt_ttl_hours,
@@ -80,6 +94,8 @@ impl AppState {
             export,
             stripe,
             privacy,
+            geo,
+            session,
         })
     }
 }

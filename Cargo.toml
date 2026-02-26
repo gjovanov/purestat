@@ -58,6 +58,8 @@ validator = { version = "0.18", features = ["derive"] }
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 # Testing
 tokio-test = "0.4"
+# GeoIP
+maxminddb = "0.24"
 # Misc
 futures = "0.3"
 urlencoding = "2"

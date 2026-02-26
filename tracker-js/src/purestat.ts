@@ -41,9 +41,25 @@
 
   // Track pageviews (SPA-aware)
   var lastPage: string | undefined;
+  var pageEntryTime: number = 0;
+
+  function sendEngagement() {
+    if (pageEntryTime > 0) {
+      var duration = Math.round((Date.now() - pageEntryTime) / 1000);
+      if (duration > 0) {
+        send('engagement', { duration: duration.toString() });
+      }
+    }
+  }
+
   function trackPageview() {
     if (lastPage === l.pathname) return;
+    // Send engagement for the previous page before tracking the new one
+    if (lastPage !== undefined) {
+      sendEngagement();
+    }
     lastPage = l.pathname;
+    pageEntryTime = Date.now();
     send('pageview');
   }
 
@@ -54,6 +70,25 @@
     trackPageview();
   };
   w.addEventListener('popstate', trackPageview);
+
+  // Leave detection
+  var engagementSent = false;
+
+  function onLeave() {
+    if (engagementSent) return;
+    engagementSent = true;
+    sendEngagement();
+  }
+
+  d.addEventListener('visibilitychange', function () {
+    if (d.visibilityState === 'hidden') {
+      onLeave();
+    } else {
+      engagementSent = false;
+    }
+  });
+
+  w.addEventListener('beforeunload', onLeave);
 
   // Initial pageview
   trackPageview();
