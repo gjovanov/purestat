@@ -30,7 +30,8 @@
 
     var body = JSON.stringify(payload);
     if (navigator.sendBeacon) {
-      navigator.sendBeacon(apiUrl, body);
+      var blob = new Blob([body], { type: 'application/json' });
+      navigator.sendBeacon(apiUrl, blob);
     } else {
       var xhr = new XMLHttpRequest();
       xhr.open('POST', apiUrl, true);
