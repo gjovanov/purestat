@@ -1,0 +1,26 @@
+# =============================================================================
+# Purestat UI + Tracker JS — K8s Dockerfile
+# Builds Vue SPA + tracker-js into a single Caddy image
+# =============================================================================
+
+# Stage 1: build tracker JS
+FROM oven/bun:1 AS tracker-build
+WORKDIR /app
+COPY tracker-js/package.json tracker-js/bun.lock* ./
+RUN bun install --frozen-lockfile
+COPY tracker-js/ .
+RUN bun run build
+
+# Stage 2: build Vue frontend
+FROM oven/bun:1 AS ui-build
+WORKDIR /app
+COPY ui/package.json ui/bun.lock* ./
+RUN bun install --frozen-lockfile
+COPY ui/ .
+RUN bun run build
+
+# Stage 3: serve with Caddy
+FROM caddy:2-alpine
+COPY --from=ui-build /app/dist /srv
+COPY --from=tracker-build /app/dist/purestat.js /srv/js/purestat.js
+EXPOSE 80
