@@ -1,6 +1,6 @@
+use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
-use axum::Json;
 use purestat_db::clickhouse::schemas::Event;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -21,8 +21,10 @@ pub struct EventRequest {
 pub async fn ingest(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(body): Json<EventRequest>,
+    raw_body: Bytes,
 ) -> Result<StatusCode, ApiError> {
+    let body: EventRequest = serde_json::from_slice(&raw_body)
+        .map_err(|e| ApiError::BadRequest(format!("Invalid event body: {e}")))?;
     // Resolve site by domain
     let site = state
         .sites
