@@ -1,3 +1,4 @@
+use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
@@ -55,8 +56,15 @@ async fn health() -> Json<HealthResponse> {
 async fn ingest_event(
     State(state): State<TrackerState>,
     headers: HeaderMap,
-    Json(body): Json<EventRequest>,
+    raw_body: Bytes,
 ) -> StatusCode {
+    let body: EventRequest = match serde_json::from_slice(&raw_body) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to parse event body");
+            return StatusCode::BAD_REQUEST;
+        }
+    };
     let ip = headers
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
