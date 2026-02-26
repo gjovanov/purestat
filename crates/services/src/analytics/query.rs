@@ -94,17 +94,14 @@ impl QueryService {
 
         let where_clause = conditions.join(" AND ");
 
-        // Build SELECT based on metrics
-        let metrics_sql = self.build_metrics_sql(&query.metrics)?;
-
         if let Some(dimensions) = &query.dimensions {
-            // Dimension breakdown
+            // Dimension breakdown — always include visitors and pageviews
             let dim_col = Self::dimension_to_column(&dimensions[0])?;
             let limit = query.limit.unwrap_or(10);
             let offset = query.offset.unwrap_or(0);
 
             let sql = format!(
-                "SELECT {dim_col} as dimension, {metrics_sql} FROM events WHERE {where_clause} GROUP BY dimension ORDER BY visitors DESC LIMIT {limit} OFFSET {offset}"
+                "SELECT {dim_col} as dimension, uniq(visitor_hash) as visitors, count() as pageviews FROM events WHERE {where_clause} GROUP BY dimension ORDER BY visitors DESC LIMIT {limit} OFFSET {offset}"
             );
 
             let rows = self
@@ -134,16 +131,16 @@ impl QueryService {
             // Timeseries
             let interval = query.interval.as_deref().unwrap_or("day");
             let date_trunc = match interval {
-                "minute" => "toStartOfMinute(timestamp)",
-                "hour" => "toStartOfHour(timestamp)",
-                "day" => "toDate(timestamp)",
-                "week" => "toMonday(timestamp)",
-                "month" => "toStartOfMonth(timestamp)",
-                _ => "toDate(timestamp)",
+                "minute" => "toString(toStartOfMinute(timestamp))",
+                "hour" => "toString(toStartOfHour(timestamp))",
+                "day" => "toString(toDate(timestamp))",
+                "week" => "toString(toMonday(timestamp))",
+                "month" => "toString(toStartOfMonth(timestamp))",
+                _ => "toString(toDate(timestamp))",
             };
 
             let sql = format!(
-                "SELECT {date_trunc} as period, {metrics_sql} FROM events WHERE {where_clause} GROUP BY period ORDER BY period"
+                "SELECT {date_trunc} as period, uniq(visitor_hash) as visitors, count() as pageviews FROM events WHERE {where_clause} GROUP BY period ORDER BY period"
             );
 
             let rows = self
@@ -182,7 +179,7 @@ impl QueryService {
 
             // Bounce rate and visit duration require the sessions table
             let session_sql = format!(
-                "SELECT round(countIf(is_bounce = 1) / count() * 100, 1) as bounce_rate, round(avg(duration), 0) as visit_duration FROM sessions WHERE {where_clause}"
+                "SELECT ifNaN(round(countIf(is_bounce = 1) / count() * 100, 1), 0) as bounce_rate, ifNaN(round(avg(duration), 0), 0) as visit_duration FROM sessions WHERE {where_clause}"
             );
             let session_row = self
                 .client
