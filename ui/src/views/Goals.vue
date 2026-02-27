@@ -38,8 +38,8 @@
     <v-dialog v-model="showDialog" max-width="500">
       <v-card class="pa-6">
         <v-card-title class="text-h6 pa-0 mb-4">{{ $t('goals.create') }}</v-card-title>
-        <v-form @submit.prevent="handleCreate">
-          <v-text-field v-model="goalName" :label="$t('goals.name')" required class="mb-2" />
+        <v-form ref="formRef" @submit.prevent="handleCreate">
+          <v-text-field v-model="goalName" :label="$t('goals.name')" :rules="[rules.required]" class="mb-2" />
           <v-select
             v-model="goalType"
             :items="goalTypes"
@@ -52,6 +52,7 @@
             v-if="goalType === 'custom_event'"
             v-model="eventName"
             :label="$t('goals.eventName')"
+            :rules="[rules.required]"
             placeholder="signup"
             class="mb-2"
           />
@@ -59,6 +60,7 @@
             v-if="goalType === 'pageview'"
             v-model="pagePath"
             :label="$t('goals.pagePath')"
+            :rules="[rules.required]"
             placeholder="/thank-you"
             class="mb-4"
           />
@@ -76,13 +78,18 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useGoalsStore } from '@/stores/goals'
+import { useSnackbar } from '@/composables/useSnackbar'
+import { useValidation } from '@/composables/useValidation'
 
 const route = useRoute()
 const goalsStore = useGoalsStore()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 
 const orgId = route.params.orgId as string
 const siteId = route.params.siteId as string
 
+const formRef = ref()
 const showDialog = ref(false)
 const goalName = ref('')
 const goalType = ref('custom_event')
@@ -98,6 +105,8 @@ const goalTypes = [
 onMounted(() => goalsStore.fetchGoals(orgId, siteId))
 
 async function handleCreate() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
   creating.value = true
   try {
     await goalsStore.createGoal(orgId, siteId, {
@@ -110,6 +119,9 @@ async function handleCreate() {
     goalName.value = ''
     eventName.value = ''
     pagePath.value = ''
+    showSuccess('Goal created')
+  } catch (e) {
+    showError(e instanceof Error ? e.message : 'Failed to create goal')
   } finally {
     creating.value = false
   }
@@ -117,7 +129,12 @@ async function handleCreate() {
 
 async function handleDelete(goalId: string) {
   if (confirm('Delete this goal?')) {
-    await goalsStore.deleteGoal(orgId, siteId, goalId)
+    try {
+      await goalsStore.deleteGoal(orgId, siteId, goalId)
+      showSuccess('Goal deleted')
+    } catch (e) {
+      showError(e instanceof Error ? e.message : 'Failed to delete goal')
+    }
   }
 }
 </script>

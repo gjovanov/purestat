@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useSnackbar } from '@/composables/useSnackbar'
 import router from '@/router'
 
 const BASE_URL = '/api'
@@ -51,6 +52,10 @@ export function useHttpClient() {
       if (!resp.ok) {
         const msg = data.message || data.error || 'Request failed'
         error.value = msg
+        if (resp.status >= 500) {
+          const { showError } = useSnackbar()
+          showError(msg)
+        }
         throw new Error(msg)
       }
 

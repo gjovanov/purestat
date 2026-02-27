@@ -9,13 +9,13 @@
         </div>
 
         <v-card class="pa-6">
-          <v-form @submit.prevent="handleLogin">
+          <v-form ref="formRef" @submit.prevent="handleLogin">
             <v-text-field
               v-model="email"
               :label="$t('auth.email')"
               type="email"
               prepend-inner-icon="mdi-email-outline"
-              required
+              :rules="[rules.required, rules.email]"
               autofocus
               class="mb-2"
             />
@@ -26,7 +26,7 @@
               prepend-inner-icon="mdi-lock-outline"
               :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
               @click:append-inner="showPassword = !showPassword"
-              required
+              :rules="[rules.required]"
               class="mb-4"
             />
 
@@ -59,11 +59,14 @@
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
+import { useValidation } from '@/composables/useValidation'
 
 const appStore = useAppStore()
 const router = useRouter()
 const route = useRoute()
+const { rules } = useValidation()
 
+const formRef = ref()
 const email = ref('')
 const password = ref('')
 const showPassword = ref(false)
@@ -71,6 +74,8 @@ const loading = ref(false)
 const error = ref('')
 
 async function handleLogin() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
   loading.value = true
   error.value = ''
   try {

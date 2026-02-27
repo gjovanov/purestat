@@ -14,6 +14,17 @@
         </v-container>
       </v-main>
     </template>
+    <v-snackbar
+      v-model="snackbar.state.show"
+      :color="snackbar.state.color"
+      :timeout="snackbar.state.timeout"
+      location="bottom right"
+    >
+      {{ snackbar.state.text }}
+      <template #actions>
+        <v-btn variant="text" @click="snackbar.hideSnackbar()">Close</v-btn>
+      </template>
+    </v-snackbar>
   </v-app>
 </template>
 
@@ -22,8 +33,11 @@ import { useRoute } from 'vue-router'
 import { onMounted, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import { useAppStore } from '@/stores/app'
+import { useSnackbar } from '@/composables/useSnackbar'
 import AppBar from '@/components/layout/AppBar.vue'
 import Sidebar from '@/components/layout/Sidebar.vue'
+
+const snackbar = useSnackbar()
 
 const route = useRoute()
 const appStore = useAppStore()

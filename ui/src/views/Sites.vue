@@ -34,10 +34,9 @@
     <v-dialog v-model="showCreateDialog" max-width="500">
       <v-card class="pa-6">
         <v-card-title class="text-h6 pa-0 mb-4">{{ $t('site.add') }}</v-card-title>
-        <v-form @submit.prevent="handleCreate">
-          <v-text-field v-model="newDomain" :label="$t('site.domain')" placeholder="example.com" required class="mb-2" />
-          <v-text-field v-model="newName" :label="$t('site.name')" required class="mb-4" />
-          <v-alert v-if="createError" type="error" density="compact" class="mb-4">{{ createError }}</v-alert>
+        <v-form ref="formRef" @submit.prevent="handleCreate">
+          <v-text-field v-model="newDomain" :label="$t('site.domain')" placeholder="example.com" :rules="[rules.required]" class="mb-2" />
+          <v-text-field v-model="newName" :label="$t('site.name')" :rules="[rules.required]" class="mb-4" />
           <div class="d-flex justify-end ga-2">
             <v-btn variant="text" @click="showCreateDialog = false">{{ $t('common.cancel') }}</v-btn>
             <v-btn type="submit" color="primary" :loading="creating">{{ $t('common.create') }}</v-btn>
@@ -53,17 +52,21 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useOrgStore } from '@/stores/org'
 import { useSiteStore } from '@/stores/site'
+import { useSnackbar } from '@/composables/useSnackbar'
+import { useValidation } from '@/composables/useValidation'
 
 const orgStore = useOrgStore()
 const siteStore = useSiteStore()
 const router = useRouter()
 const route = useRoute()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 
+const formRef = ref()
 const showCreateDialog = ref(false)
 const newDomain = ref('')
 const newName = ref('')
 const creating = ref(false)
-const createError = ref('')
 
 const orgId = route.params.orgId as string
 
@@ -78,16 +81,18 @@ function navigateToSite(siteId: string) {
 }
 
 async function handleCreate() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
   creating.value = true
-  createError.value = ''
   try {
     const site = await siteStore.createSite(orgId, newDomain.value, newName.value)
     showCreateDialog.value = false
     newDomain.value = ''
     newName.value = ''
+    showSuccess('Site created')
     router.push({ name: 'dashboard', params: { orgId, siteId: site.id } })
   } catch (e) {
-    createError.value = e instanceof Error ? e.message : 'Failed to create site'
+    showError(e instanceof Error ? e.message : 'Failed to create site')
   } finally {
     creating.value = false
   }

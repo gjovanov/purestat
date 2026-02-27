@@ -75,11 +75,12 @@
     <v-dialog v-model="showInviteDialog" max-width="450">
       <v-card class="pa-6">
         <v-card-title class="text-h6 pa-0 mb-4">Invite to Organization</v-card-title>
-        <v-form @submit.prevent="handleInvite">
+        <v-form ref="formRef" @submit.prevent="handleInvite">
           <v-text-field
             v-model="inviteEmail"
             label="Email (optional)"
             placeholder="teammate@company.com"
+            :rules="[rules.email]"
             class="mb-2"
           />
           <v-select
@@ -93,6 +94,7 @@
             label="Max uses"
             type="number"
             min="1"
+            :rules="[rules.positiveNumber]"
             class="mb-4"
           />
           <div class="d-flex justify-end ga-2">
@@ -109,6 +111,8 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useHttpClient } from '@/composables/useHttpClient'
+import { useSnackbar } from '@/composables/useSnackbar'
+import { useValidation } from '@/composables/useValidation'
 
 interface Member {
   id: string
@@ -129,7 +133,10 @@ interface Invite {
 
 const route = useRoute()
 const orgId = route.params.orgId as string
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 
+const formRef = ref()
 const members = ref<Member[]>([])
 const invites = ref<Invite[]>([])
 const showInviteDialog = ref(false)
@@ -156,21 +163,33 @@ async function fetchInvites() {
 }
 
 async function handleRoleChange(memberId: string, role: string) {
-  const { put } = useHttpClient()
-  await put(`/org/${orgId}/member/${memberId}`, { role })
-  const m = members.value.find((m) => m.id === memberId)
-  if (m) m.role = role
+  try {
+    const { put } = useHttpClient()
+    await put(`/org/${orgId}/member/${memberId}`, { role })
+    const m = members.value.find((m) => m.id === memberId)
+    if (m) m.role = role
+    showSuccess('Role updated')
+  } catch (e) {
+    showError(e instanceof Error ? e.message : 'Failed to update role')
+  }
 }
 
 async function handleRemove(memberId: string) {
   if (confirm('Remove this member from the organization?')) {
-    const { del } = useHttpClient()
-    await del(`/org/${orgId}/member/${memberId}`)
-    members.value = members.value.filter((m) => m.id !== memberId)
+    try {
+      const { del } = useHttpClient()
+      await del(`/org/${orgId}/member/${memberId}`)
+      members.value = members.value.filter((m) => m.id !== memberId)
+      showSuccess('Member removed')
+    } catch (e) {
+      showError(e instanceof Error ? e.message : 'Failed to remove member')
+    }
   }
 }
 
 async function handleInvite() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
   inviting.value = true
   try {
     const { post } = useHttpClient()
@@ -184,6 +203,9 @@ async function handleInvite() {
     inviteEmail.value = ''
     inviteRole.value = 'viewer'
     inviteMaxUses.value = 1
+    showSuccess('Invite created')
+  } catch (e) {
+    showError(e instanceof Error ? e.message : 'Failed to create invite')
   } finally {
     inviting.value = false
   }
@@ -191,9 +213,14 @@ async function handleInvite() {
 
 async function handleRevokeInvite(inviteId: string) {
   if (confirm('Revoke this invite?')) {
-    const { del } = useHttpClient()
-    await del(`/org/${orgId}/invite/${inviteId}`)
-    invites.value = invites.value.filter((i) => i.id !== inviteId)
+    try {
+      const { del } = useHttpClient()
+      await del(`/org/${orgId}/invite/${inviteId}`)
+      invites.value = invites.value.filter((i) => i.id !== inviteId)
+      showSuccess('Invite revoked')
+    } catch (e) {
+      showError(e instanceof Error ? e.message : 'Failed to revoke invite')
+    }
   }
 }
 

@@ -46,10 +46,9 @@
     <v-dialog v-model="showCreateDialog" max-width="500">
       <v-card class="pa-6">
         <v-card-title class="text-h6 pa-0 mb-4">{{ $t('org.create') }}</v-card-title>
-        <v-form @submit.prevent="handleCreate">
-          <v-text-field v-model="newOrgName" :label="$t('org.name')" required class="mb-2" />
-          <v-text-field v-model="newOrgSlug" :label="$t('org.slug')" required class="mb-4" />
-          <v-alert v-if="createError" type="error" density="compact" class="mb-4">{{ createError }}</v-alert>
+        <v-form ref="formRef" @submit.prevent="handleCreate">
+          <v-text-field v-model="newOrgName" :label="$t('org.name')" :rules="[rules.required]" class="mb-2" />
+          <v-text-field v-model="newOrgSlug" :label="$t('org.slug')" :rules="[rules.required, rules.slug]" class="mb-4" />
           <div class="d-flex justify-end ga-2">
             <v-btn variant="text" @click="showCreateDialog = false">{{ $t('common.cancel') }}</v-btn>
             <v-btn type="submit" color="primary" :loading="creating">{{ $t('common.create') }}</v-btn>
@@ -64,15 +63,19 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useOrgStore } from '@/stores/org'
+import { useSnackbar } from '@/composables/useSnackbar'
+import { useValidation } from '@/composables/useValidation'
 
 const orgStore = useOrgStore()
 const router = useRouter()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 
+const formRef = ref()
 const showCreateDialog = ref(false)
 const newOrgName = ref('')
 const newOrgSlug = ref('')
 const creating = ref(false)
-const createError = ref('')
 
 onMounted(() => orgStore.fetchOrgs())
 
@@ -86,16 +89,18 @@ function navigateToOrg(orgId: string) {
 }
 
 async function handleCreate() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
   creating.value = true
-  createError.value = ''
   try {
     const org = await orgStore.createOrg(newOrgName.value, newOrgSlug.value)
     showCreateDialog.value = false
     newOrgName.value = ''
     newOrgSlug.value = ''
+    showSuccess('Organization created')
     router.push({ name: 'sites', params: { orgId: org.id } })
   } catch (e) {
-    createError.value = e instanceof Error ? e.message : 'Failed to create organization'
+    showError(e instanceof Error ? e.message : 'Failed to create organization')
   } finally {
     creating.value = false
   }

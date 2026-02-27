@@ -9,13 +9,13 @@
         </div>
 
         <v-card class="pa-6">
-          <v-form @submit.prevent="handleRegister">
+          <v-form ref="formRef" @submit.prevent="handleRegister">
             <v-text-field
               v-model="email"
               :label="$t('auth.email')"
               type="email"
               prepend-inner-icon="mdi-email-outline"
-              required
+              :rules="[rules.required, rules.email]"
               autofocus
               class="mb-2"
             />
@@ -23,7 +23,7 @@
               v-model="username"
               :label="$t('auth.username')"
               prepend-inner-icon="mdi-account-outline"
-              required
+              :rules="[rules.required, rules.minLength(3)]"
               class="mb-2"
             />
             <v-text-field
@@ -39,7 +39,7 @@
               prepend-inner-icon="mdi-lock-outline"
               :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
               @click:append-inner="showPassword = !showPassword"
-              required
+              :rules="[rules.required, rules.minLength(6)]"
               class="mb-4"
             />
 
@@ -72,10 +72,13 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
+import { useValidation } from '@/composables/useValidation'
 
 const appStore = useAppStore()
 const router = useRouter()
+const { rules } = useValidation()
 
+const formRef = ref()
 const email = ref('')
 const username = ref('')
 const displayName = ref('')
@@ -85,6 +88,8 @@ const loading = ref(false)
 const error = ref('')
 
 async function handleRegister() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
   loading.value = true
   error.value = ''
   try {

@@ -39,8 +39,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { useSnackbar } from '@/composables/useSnackbar'
 
 const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
 
 const displayName = ref('')
 const saving = ref(false)
@@ -55,6 +57,9 @@ async function handleSave() {
   saving.value = true
   try {
     await appStore.updateProfile({ display_name: displayName.value })
+    showSuccess('Profile updated')
+  } catch (e) {
+    showError(e instanceof Error ? e.message : 'Failed to update profile')
   } finally {
     saving.value = false
   }

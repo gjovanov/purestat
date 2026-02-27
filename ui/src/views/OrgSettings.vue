@@ -5,8 +5,8 @@
     </div>
 
     <v-card class="pa-6 mb-6" v-if="orgStore.currentOrg">
-      <v-form @submit.prevent="handleSave">
-        <v-text-field v-model="orgName" :label="$t('org.name')" class="mb-2" />
+      <v-form ref="formRef" @submit.prevent="handleSave">
+        <v-text-field v-model="orgName" :label="$t('org.name')" :rules="[rules.required]" class="mb-2" />
         <v-text-field
           :model-value="orgStore.currentOrg.slug"
           :label="$t('org.slug')"
@@ -40,12 +40,17 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useOrgStore } from '@/stores/org'
+import { useSnackbar } from '@/composables/useSnackbar'
+import { useValidation } from '@/composables/useValidation'
 
 const route = useRoute()
 const router = useRouter()
 const orgStore = useOrgStore()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 
 const orgId = route.params.orgId as string
+const formRef = ref()
 const orgName = ref('')
 const saving = ref(false)
 
@@ -57,9 +62,14 @@ onMounted(async () => {
 })
 
 async function handleSave() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
   saving.value = true
   try {
     await orgStore.updateOrg(orgId, orgName.value)
+    showSuccess('Organization updated')
+  } catch (e) {
+    showError(e instanceof Error ? e.message : 'Failed to update organization')
   } finally {
     saving.value = false
   }
@@ -67,8 +77,13 @@ async function handleSave() {
 
 async function handleDelete() {
   if (confirm('Are you sure? This will permanently delete the organization and all its data.')) {
-    await orgStore.deleteOrg(orgId)
-    router.push({ name: 'orgs' })
+    try {
+      await orgStore.deleteOrg(orgId)
+      showSuccess('Organization deleted')
+      router.push({ name: 'orgs' })
+    } catch (e) {
+      showError(e instanceof Error ? e.message : 'Failed to delete organization')
+    }
   }
 }
 </script>

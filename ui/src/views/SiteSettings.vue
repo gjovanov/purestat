@@ -6,8 +6,8 @@
 
     <v-card v-if="site" class="pa-6 mb-6">
       <v-card-title class="text-h6 pa-0 mb-4">{{ $t('site.name') }}</v-card-title>
-      <v-form @submit.prevent="handleSave">
-        <v-text-field v-model="siteName" :label="$t('site.name')" class="mb-2" />
+      <v-form ref="formRef" @submit.prevent="handleSave">
+        <v-text-field v-model="siteName" :label="$t('site.name')" :rules="[rules.required]" class="mb-2" />
         <v-text-field v-model="siteDomain" :label="$t('site.domain')" disabled class="mb-2" />
         <v-text-field v-model="siteTimezone" :label="$t('site.timezone')" class="mb-2" />
         <v-switch v-model="isPublic" label="Public dashboard" color="primary" class="mb-2" />
@@ -49,14 +49,19 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSiteStore } from '@/stores/site'
+import { useSnackbar } from '@/composables/useSnackbar'
+import { useValidation } from '@/composables/useValidation'
 
 const route = useRoute()
 const router = useRouter()
 const siteStore = useSiteStore()
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
 
 const orgId = route.params.orgId as string
 const siteId = route.params.siteId as string
 
+const formRef = ref()
 const siteName = ref('')
 const siteDomain = ref('')
 const siteTimezone = ref('UTC')
@@ -84,6 +89,8 @@ onMounted(async () => {
 })
 
 async function handleSave() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
   saving.value = true
   try {
     await siteStore.updateSite(orgId, siteId, {
@@ -95,6 +102,9 @@ async function handleSave() {
         .map((h) => h.trim())
         .filter(Boolean),
     })
+    showSuccess('Site settings saved')
+  } catch (e) {
+    showError(e instanceof Error ? e.message : 'Failed to save settings')
   } finally {
     saving.value = false
   }
@@ -108,8 +118,13 @@ function copySnippet() {
 
 async function handleDelete() {
   if (confirm('Are you sure? This will permanently delete all data for this site.')) {
-    await siteStore.deleteSite(orgId, siteId)
-    router.push({ name: 'sites', params: { orgId } })
+    try {
+      await siteStore.deleteSite(orgId, siteId)
+      showSuccess('Site deleted')
+      router.push({ name: 'sites', params: { orgId } })
+    } catch (e) {
+      showError(e instanceof Error ? e.message : 'Failed to delete site')
+    }
   }
 }
 </script>

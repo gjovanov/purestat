@@ -54,8 +54,8 @@
     <v-dialog v-model="showDialog" max-width="500">
       <v-card class="pa-6">
         <v-card-title class="text-h6 pa-0 mb-4">Create API Key</v-card-title>
-        <v-form @submit.prevent="handleCreate">
-          <v-text-field v-model="keyName" label="Key name" placeholder="My integration" required class="mb-2" />
+        <v-form ref="formRef" @submit.prevent="handleCreate">
+          <v-text-field v-model="keyName" label="Key name" placeholder="My integration" :rules="[rules.required]" class="mb-2" />
           <v-select
             v-model="keyScopes"
             :items="scopeOptions"
@@ -78,6 +78,8 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useHttpClient } from '@/composables/useHttpClient'
+import { useSnackbar } from '@/composables/useSnackbar'
+import { useValidation } from '@/composables/useValidation'
 
 interface ApiKey {
   id: string
@@ -92,6 +94,10 @@ const route = useRoute()
 const orgId = route.params.orgId as string
 const siteId = route.params.siteId as string
 
+const { showSuccess, showError } = useSnackbar()
+const { rules } = useValidation()
+
+const formRef = ref()
 const apiKeys = ref<ApiKey[]>([])
 const showDialog = ref(false)
 const keyName = ref('')
@@ -110,6 +116,8 @@ async function fetchKeys() {
 }
 
 async function handleCreate() {
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
   creating.value = true
   try {
     const { post } = useHttpClient()
@@ -122,6 +130,9 @@ async function handleCreate() {
     showDialog.value = false
     keyName.value = ''
     keyScopes.value = ['stats:read']
+    showSuccess('API key created')
+  } catch (e) {
+    showError(e instanceof Error ? e.message : 'Failed to create API key')
   } finally {
     creating.value = false
   }
@@ -129,9 +140,14 @@ async function handleCreate() {
 
 async function handleRevoke(keyId: string) {
   if (confirm('Revoke this API key? This cannot be undone.')) {
-    const { del } = useHttpClient()
-    await del(`/org/${orgId}/site/${siteId}/api-key/${keyId}`)
-    apiKeys.value = apiKeys.value.filter((k) => k.id !== keyId)
+    try {
+      const { del } = useHttpClient()
+      await del(`/org/${orgId}/site/${siteId}/api-key/${keyId}`)
+      apiKeys.value = apiKeys.value.filter((k) => k.id !== keyId)
+      showSuccess('API key revoked')
+    } catch (e) {
+      showError(e instanceof Error ? e.message : 'Failed to revoke API key')
+    }
   }
 }
 
