@@ -83,10 +83,13 @@
     <!-- Footer -->
     <v-footer class="text-center text-medium-emphasis pa-6">
       <v-container>
-        <p class="text-body-2">
-          Purestat &mdash; Open source, privacy-first analytics.
-          MIT Licensed.
+        <p class="text-body-2 mb-2">
+          Purestat &mdash; Open source, privacy-first analytics. MIT Licensed.
         </p>
+        <div class="d-flex justify-center ga-4">
+          <router-link to="/privacy" class="text-body-2 text-medium-emphasis text-decoration-none">Privacy Policy</router-link>
+          <router-link to="/terms" class="text-body-2 text-medium-emphasis text-decoration-none">Terms of Service</router-link>
+        </div>
       </v-container>
     </v-footer>
   </div>

@@ -23,6 +23,18 @@ const router = createRouter({
       meta: { public: true, layout: 'blank' },
     },
     {
+      path: '/privacy',
+      name: 'privacy',
+      component: () => import('@/views/legal/PrivacyPolicy.vue'),
+      meta: { public: true, layout: 'blank' },
+    },
+    {
+      path: '/terms',
+      name: 'terms',
+      component: () => import('@/views/legal/Terms.vue'),
+      meta: { public: true, layout: 'blank' },
+    },
+    {
       path: '/invite/:code',
       name: 'invite-accept',
       component: () => import('@/views/InviteAccept.vue'),
