@@ -45,12 +45,20 @@ pub async fn ingest(
         .unwrap_or(0);
 
     // Extract IP and User-Agent for privacy hashing
+    // Priority: X-Forwarded-For (first entry) > X-Real-IP > fallback
     let ip = headers
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.split(',').next())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.trim())
+        })
         .unwrap_or("0.0.0.0")
-        .trim()
         .to_string();
 
     let user_agent = headers
