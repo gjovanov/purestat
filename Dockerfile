@@ -25,11 +25,14 @@ RUN cargo build --release --bin purestat-api --bin purestat-tracker
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/purestat-api /usr/local/bin/purestat-api
 COPY --from=builder /app/target/release/purestat-tracker /usr/local/bin/purestat-tracker
+COPY scripts/geoip-download.sh /usr/local/bin/geoip-download.sh
 
 EXPOSE 3000 3001
 
+ENTRYPOINT ["geoip-download.sh"]
 CMD ["purestat-api"]
