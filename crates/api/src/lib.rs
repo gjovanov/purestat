@@ -21,7 +21,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/register", post(routes::auth::register))
         .route("/login", post(routes::auth::login))
         .route("/logout", post(routes::auth::logout))
-        .route("/refresh", post(routes::auth::refresh));
+        .route("/refresh", post(routes::auth::refresh))
+        .route("/activate", post(routes::auth::activate));
 
     // Protected user routes
     let me_routes = Router::new()

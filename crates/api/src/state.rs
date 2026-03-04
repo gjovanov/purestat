@@ -9,8 +9,10 @@ use purestat_services::analytics::realtime::RealtimeService;
 use purestat_services::analytics::session::SessionService;
 use purestat_services::export::ExportService;
 use purestat_services::stripe::StripeService;
+use purestat_services::EmailService;
 use purestat_services::{
-    ApiKeyDao, AuthService, GoalDao, InviteDao, OrgDao, OrgMemberDao, SiteDao, UserDao,
+    ActivationCodeDao, ApiKeyDao, AuthService, GoalDao, InviteDao, OrgDao, OrgMemberDao, SiteDao,
+    UserDao,
 };
 use std::sync::Arc;
 
@@ -26,6 +28,8 @@ pub struct AppState {
     pub goals: Arc<GoalDao>,
     pub invites: Arc<InviteDao>,
     pub api_keys: Arc<ApiKeyDao>,
+    pub activation_codes: Arc<ActivationCodeDao>,
+    pub email: Option<Arc<EmailService>>,
     pub ingest: Arc<IngestService>,
     pub query: Arc<QueryService>,
     pub realtime: Arc<RealtimeService>,
@@ -51,6 +55,17 @@ impl AppState {
         let goals = Arc::new(GoalDao::new(&db));
         let invites = Arc::new(InviteDao::new(&db));
         let api_keys = Arc::new(ApiKeyDao::new(&db));
+        let activation_codes = Arc::new(ActivationCodeDao::new(&db));
+
+        let email = if !settings.email.api_key.is_empty() {
+            Some(Arc::new(EmailService::new(
+                settings.email.api_key.clone(),
+                settings.email.from_email.clone(),
+                settings.email.from_name.clone(),
+            )))
+        } else {
+            None
+        };
 
         let ingest = Arc::new(IngestService::new(
             ch.clone(),
@@ -88,6 +103,8 @@ impl AppState {
             goals,
             invites,
             api_keys,
+            activation_codes,
+            email,
             ingest,
             query,
             realtime,

@@ -12,6 +12,8 @@ pub struct Settings {
     pub oauth: OAuthSettings,
     #[serde(default)]
     pub stripe: StripeSettings,
+    #[serde(default)]
+    pub email: EmailSettings,
     pub tracker: TrackerSettings,
     pub privacy: PrivacySettings,
     pub geo: GeoSettings,
@@ -81,6 +83,30 @@ pub struct StripeSettings {
     pub business_price_id: String,
 }
 
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct EmailSettings {
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default = "default_from_email")]
+    pub from_email: String,
+    #[serde(default = "default_from_name")]
+    pub from_name: String,
+    #[serde(default = "default_activation_ttl")]
+    pub activation_token_ttl_minutes: u64,
+}
+
+fn default_from_email() -> String {
+    "noreply@purestat.app".to_string()
+}
+
+fn default_from_name() -> String {
+    "PureStat".to_string()
+}
+
+fn default_activation_ttl() -> u64 {
+    5
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct TrackerSettings {
     pub host: String,
@@ -132,6 +158,11 @@ impl Settings {
             .set_default("redis.url", "redis://localhost:6380")?
             // OAuth defaults (None by default — optional)
             // Stripe defaults (empty by default — optional)
+            // Email defaults
+            .set_default("email.api_key", "")?
+            .set_default("email.from_email", "noreply@purestat.app")?
+            .set_default("email.from_name", "PureStat")?
+            .set_default("email.activation_token_ttl_minutes", 5i64)?
             // Tracker defaults
             .set_default("tracker.host", "0.0.0.0")?
             .set_default("tracker.port", 3001)?

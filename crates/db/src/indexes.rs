@@ -61,6 +61,17 @@ pub async fn ensure_indexes(db: &Database) -> Result<(), mongodb::error::Error> 
     )
     .await?;
 
+    // Activation Codes
+    create_indexes(
+        db,
+        "activation_codes",
+        vec![
+            index(bson::doc! { "user_id": 1 }),
+            index(bson::doc! { "valid_to": 1 }),
+        ],
+    )
+    .await?;
+
     // API Keys
     create_indexes(
         db,

@@ -44,6 +44,17 @@ pub struct UpdateProfileRequest {
     pub locale: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ActivateRequest {
+    pub user_id: String,
+    pub token: String,
+}
+
+#[derive(Serialize)]
+pub struct MessageResponse {
+    pub message: String,
+}
+
 pub async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
@@ -52,13 +63,46 @@ pub async fn register(
     let display_name = body
         .display_name
         .unwrap_or_else(|| body.username.clone());
+    let email = body.email.clone();
 
     let user = state
         .users
-        .create(body.email, body.username, display_name, Some(password_hash))
+        .create(body.email, body.username, display_name.clone(), Some(password_hash))
         .await?;
 
-    let user_id = user.id.unwrap().to_hex();
+    let user_id_oid = user.id.unwrap();
+    let user_id = user_id_oid.to_hex();
+
+    // Generate activation code and send email (non-fatal)
+    let activation_token = nanoid::nanoid!(7);
+    if let Err(e) = state
+        .activation_codes
+        .create(
+            user_id_oid,
+            activation_token.clone(),
+            state.settings.email.activation_token_ttl_minutes,
+        )
+        .await
+    {
+        tracing::warn!("Failed to create activation code: {:?}", e);
+    } else if let Some(ref email_svc) = state.email {
+        let activation_url = format!(
+            "{}/auth/activate?userId={}&token={}",
+            state.settings.app.frontend_url, user_id, activation_token
+        );
+        if let Err(e) = email_svc
+            .send_activation(
+                &email,
+                &display_name,
+                &activation_url,
+                state.settings.email.activation_token_ttl_minutes,
+            )
+            .await
+        {
+            tracing::warn!("Failed to send activation email: {:?}", e);
+        }
+    }
+
     let access_token =
         state
             .auth
@@ -206,6 +250,44 @@ pub async fn refresh(
             access_token: new_access,
         }),
     ))
+}
+
+pub async fn activate(
+    State(state): State<AppState>,
+    Json(body): Json<ActivateRequest>,
+) -> Result<Json<MessageResponse>, ApiError> {
+    let user_id = bson::oid::ObjectId::parse_str(&body.user_id)
+        .map_err(|_| ApiError::BadRequest("Invalid user ID".to_string()))?;
+
+    let _code = state
+        .activation_codes
+        .find_valid(user_id, &body.token)
+        .await
+        .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?
+        .ok_or_else(|| ApiError::BadRequest("Invalid or expired activation token".to_string()))?;
+
+    state
+        .users
+        .base
+        .update_by_id(user_id, bson::doc! { "$set": { "is_verified": true } })
+        .await
+        .map_err(|e| ApiError::Internal(format!("Failed to activate: {}", e)))?;
+
+    let _ = state.activation_codes.delete_for_user(user_id).await;
+
+    // Send success email (non-fatal)
+    if let Some(ref email_svc) = state.email {
+        if let Ok(user) = state.users.base.find_by_id(user_id).await {
+            let login_url = format!("{}/auth/login", state.settings.app.frontend_url);
+            let _ = email_svc
+                .send_activation_success(&user.email, &user.display_name, &login_url)
+                .await;
+        }
+    }
+
+    Ok(Json(MessageResponse {
+        message: "Account activated successfully. You can now sign in.".to_string(),
+    }))
 }
 
 fn set_auth_cookies(headers: &mut HeaderMap, access_token: &str, refresh_token: &str) {

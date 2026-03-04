@@ -1,3 +1,4 @@
+mod activation_code;
 mod api_key;
 mod base;
 mod goal;
@@ -7,6 +8,7 @@ mod org_member;
 mod site;
 mod user;
 
+pub use activation_code::ActivationCodeDao;
 pub use api_key::ApiKeyDao;
 pub use base::{DaoError, DaoResult, PaginatedResult, PaginationParams};
 pub use goal::GoalDao;
