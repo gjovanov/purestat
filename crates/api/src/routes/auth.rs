@@ -58,7 +58,7 @@ pub struct MessageResponse {
 pub async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
-) -> Result<(StatusCode, HeaderMap, Json<AuthResponse>), ApiError> {
+) -> Result<(StatusCode, Json<MessageResponse>), ApiError> {
     let password_hash = state.auth.hash_password(&body.password)?;
     let display_name = body
         .display_name
@@ -103,24 +103,10 @@ pub async fn register(
         }
     }
 
-    let access_token =
-        state
-            .auth
-            .generate_access_token(&user_id, &user.email, &user.username)?;
-    let refresh_token =
-        state
-            .auth
-            .generate_refresh_token(&user_id, &user.email, &user.username)?;
-
-    let mut headers = HeaderMap::new();
-    set_auth_cookies(&mut headers, &access_token, &refresh_token);
-
     Ok((
         StatusCode::CREATED,
-        headers,
-        Json(AuthResponse {
-            user: user_to_response(&user),
-            access_token,
+        Json(MessageResponse {
+            message: "Registration successful. Please check your email to activate your account.".to_string(),
         }),
     ))
 }
@@ -144,6 +130,12 @@ pub async fn login(
     if !valid {
         return Err(ApiError::Unauthorized(
             "Invalid credentials".to_string(),
+        ));
+    }
+
+    if !user.is_verified {
+        return Err(ApiError::Unauthorized(
+            "Account not activated. Please check your email for the activation link.".to_string(),
         ));
     }
 
