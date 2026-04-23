@@ -1,6 +1,8 @@
 # Stage 1: cargo-chef for dependency caching
 FROM rust:1.88-slim AS chef
-RUN cargo install cargo-chef
+# Pin cargo-chef to a version compatible with rust 1.88
+# (0.1.77+ pulls cargo-platform requiring rustc 1.91)
+RUN cargo install cargo-chef --version 0.1.71 --locked
 WORKDIR /app
 
 # Stage 2: prepare recipe
