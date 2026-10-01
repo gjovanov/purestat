@@ -179,7 +179,7 @@ impl QueryService {
 
             // Bounce rate and visit duration require the sessions table
             let session_sql = format!(
-                "SELECT ifNaN(round(countIf(is_bounce = 1) / count() * 100, 1), 0) as bounce_rate, ifNaN(round(avg(duration), 0), 0) as visit_duration FROM sessions WHERE {where_clause}"
+                "SELECT ifNotFinite(round(countIf(is_bounce = 1) / count() * 100, 1), 0) as bounce_rate, ifNotFinite(round(avg(duration), 0), 0) as visit_duration FROM sessions WHERE {where_clause}"
             );
             let session_row = self
                 .bound(&session_sql, &binds)
