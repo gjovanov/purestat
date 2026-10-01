@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
 use crate::extractors::auth::AuthUser;
-use crate::routes::org::{ensure_admin, ensure_member, parse_oid};
+use crate::routes::org::{ensure_admin, ensure_member, ensure_site_in_org, parse_oid};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -35,6 +35,7 @@ pub async fn list(
     let org_oid = parse_oid(&org_id)?;
     let site_oid = parse_oid(&site_id)?;
     ensure_member(&state, org_oid, auth.user_id).await?;
+    ensure_site_in_org(&state, org_oid, site_oid).await?;
 
     let goals = state.goals.find_by_site(site_oid).await?;
     Ok(Json(goals.iter().map(goal_to_response).collect()))
@@ -49,6 +50,7 @@ pub async fn create(
     let org_oid = parse_oid(&org_id)?;
     let site_oid = parse_oid(&site_id)?;
     ensure_admin(&state, org_oid, auth.user_id).await?;
+    ensure_site_in_org(&state, org_oid, site_oid).await?;
 
     let goal = state
         .goals
@@ -68,13 +70,17 @@ pub async fn create(
 pub async fn delete(
     State(state): State<AppState>,
     auth: AuthUser,
-    Path((org_id, _site_id, goal_id)): Path<(String, String, String)>,
+    Path((org_id, site_id, goal_id)): Path<(String, String, String)>,
 ) -> Result<StatusCode, ApiError> {
     let org_oid = parse_oid(&org_id)?;
+    let site_oid = parse_oid(&site_id)?;
     let goal_oid = parse_oid(&goal_id)?;
     ensure_admin(&state, org_oid, auth.user_id).await?;
+    ensure_site_in_org(&state, org_oid, site_oid).await?;
 
-    state.goals.delete(goal_oid).await?;
+    if state.goals.delete(goal_oid, site_oid).await? == 0 {
+        return Err(ApiError::NotFound("Goal not found".to_string()));
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

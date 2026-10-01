@@ -6,6 +6,8 @@ use thiserror::Error;
 pub enum ExportError {
     #[error("ClickHouse error: {0}")]
     ClickHouse(#[from] clickhouse::error::Error),
+    #[error("Invalid date: {0}")]
+    InvalidDate(String),
 }
 
 pub struct ExportService {
@@ -30,14 +32,25 @@ impl ExportService {
                 country, browser, os, device_type, \
                 utm_source, utm_medium, utm_campaign \
              FROM events \
-             WHERE site_id = {site_id} AND date >= '{date_from}' AND date <= '{date_to}' \
+             WHERE site_id = {site_id} AND date >= ? AND date <= ? \
              ORDER BY timestamp \
              FORMAT CSVWithNames"
         );
 
+        // The dates come from the query string: parsed strictly, then bound,
+        // never spliced into the SQL (GHSA-7f5h-5qwr-rxh5).
+        let parse = |d: &str| {
+            crate::analytics::query::parse_date(d)
+                .map(|d| d.to_string())
+                .map_err(|_| ExportError::InvalidDate(d.to_string()))
+        };
+        let (date_from, date_to) = (parse(date_from)?, parse(date_to)?);
+
         let rows = self
             .client
             .query(&sql)
+            .bind(date_from.as_str())
+            .bind(date_to.as_str())
             .fetch_all::<CsvRow>()
             .await?;
 

@@ -55,12 +55,13 @@ impl ApiKeyDao {
             .await
     }
 
-    pub async fn revoke(&self, key_id: ObjectId) -> DaoResult<bool> {
+    /// Revokes the key only if it belongs to `site_id` (GHSA-7f5h-5qwr-rxh5).
+    pub async fn revoke(&self, key_id: ObjectId, site_id: ObjectId) -> DaoResult<bool> {
         let result = self
             .base
             .collection()
             .update_one(
-                doc! { "_id": key_id, "revoked_at": null },
+                doc! { "_id": key_id, "site_id": site_id, "revoked_at": null },
                 doc! { "$set": { "revoked_at": DateTime::now() } },
             )
             .await?;

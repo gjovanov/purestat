@@ -54,6 +54,21 @@ pub async fn list(
     Ok(Json(responses))
 }
 
+/// The membership, looked up WITHIN the org. A member id from another org is
+/// "not found": admin of one org is not admin of every org (GHSA-7f5h-5qwr-rxh5).
+async fn member_in_org(
+    state: &AppState,
+    org_id: bson::oid::ObjectId,
+    member_id: bson::oid::ObjectId,
+) -> Result<purestat_db::models::OrgMember, ApiError> {
+    state
+        .org_members
+        .base
+        .find_one(bson::doc! { "_id": member_id, "org_id": org_id })
+        .await?
+        .ok_or(ApiError::NotFound("Member not found".to_string()))
+}
+
 pub async fn update_role(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -63,11 +78,18 @@ pub async fn update_role(
     let org_oid = parse_oid(&org_id)?;
     let member_oid = parse_oid(&member_id)?;
     ensure_admin(&state, org_oid, auth.user_id).await?;
+    let member = member_in_org(&state, org_oid, member_oid).await?;
 
     // Cannot change owner role
     if body.role == OrgRole::Owner {
         return Err(ApiError::BadRequest(
             "Cannot assign owner role".to_string(),
+        ));
+    }
+    // ...nor take it away: `remove` refuses the owner too.
+    if member.role == OrgRole::Owner {
+        return Err(ApiError::Forbidden(
+            "Cannot change the organization owner's role".to_string(),
         ));
     }
 
@@ -89,12 +111,7 @@ pub async fn remove(
     ensure_admin(&state, org_oid, auth.user_id).await?;
 
     // Cannot remove the owner
-    let member = state
-        .org_members
-        .base
-        .find_one(bson::doc! { "_id": member_oid })
-        .await?
-        .ok_or(ApiError::NotFound("Member not found".to_string()))?;
+    let member = member_in_org(&state, org_oid, member_oid).await?;
 
     if member.role == OrgRole::Owner {
         return Err(ApiError::Forbidden(

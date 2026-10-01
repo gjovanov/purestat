@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::ApiError;
 use crate::extractors::auth::AuthUser;
-use crate::routes::org::{ensure_admin, parse_oid};
+use crate::routes::org::{ensure_admin, ensure_member, ensure_site_in_org, parse_oid};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -41,7 +41,8 @@ pub async fn list(
 ) -> Result<Json<Vec<ApiKeyResponse>>, ApiError> {
     let org_oid = parse_oid(&org_id)?;
     let site_oid = parse_oid(&site_id)?;
-    crate::routes::org::ensure_member(&state, org_oid, auth.user_id).await?;
+    ensure_member(&state, org_oid, auth.user_id).await?;
+    ensure_site_in_org(&state, org_oid, site_oid).await?;
 
     let keys = state.api_keys.find_by_site(site_oid).await?;
     Ok(Json(keys.iter().map(key_to_response).collect()))
@@ -56,6 +57,7 @@ pub async fn create(
     let org_oid = parse_oid(&org_id)?;
     let site_oid = parse_oid(&site_id)?;
     ensure_admin(&state, org_oid, auth.user_id).await?;
+    ensure_site_in_org(&state, org_oid, site_oid).await?;
 
     // Generate a random API key
     let raw_key = format!("ps_{}", nanoid::nanoid!(32));
@@ -86,13 +88,21 @@ pub async fn create(
 pub async fn revoke(
     State(state): State<AppState>,
     auth: AuthUser,
-    Path((org_id, _site_id, key_id)): Path<(String, String, String)>,
+    Path((org_id, site_id, key_id)): Path<(String, String, String)>,
 ) -> Result<StatusCode, ApiError> {
     let org_oid = parse_oid(&org_id)?;
+    let site_oid = parse_oid(&site_id)?;
     let key_oid = parse_oid(&key_id)?;
     ensure_admin(&state, org_oid, auth.user_id).await?;
+    ensure_site_in_org(&state, org_oid, site_oid).await?;
+    state
+        .api_keys
+        .base
+        .find_one(bson::doc! { "_id": key_oid, "site_id": site_oid })
+        .await?
+        .ok_or(ApiError::NotFound("API key not found".to_string()))?;
 
-    state.api_keys.revoke(key_oid).await?;
+    state.api_keys.revoke(key_oid, site_oid).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

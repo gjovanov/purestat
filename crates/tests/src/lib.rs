@@ -19,4 +19,6 @@ mod event_test;
 #[cfg(test)]
 mod stats_test;
 #[cfg(test)]
+mod authz_test;
+#[cfg(test)]
 mod stripe_test;

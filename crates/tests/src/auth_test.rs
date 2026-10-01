@@ -7,10 +7,11 @@ async fn test_register_and_login() {
     let email = format!("test-{uid}@purestat.test");
     let username = format!("user-{}", &uid[..8]);
 
-    // Register
+    // Register: the account then waits for its emailed activation link, which
+    // the helper follows the way a person would, then signs in.
     let data = client.register(&email, &username, "TestPass123!").await;
-    assert!(data["user"]["id"].as_str().is_some());
-    assert_eq!(data["user"]["email"].as_str().unwrap(), email);
+    assert!(data["message"].as_str().unwrap_or("").contains("activate"), "{data}");
+    assert!(client.access_token.is_some(), "activated and signed in");
 
     // Login
     let mut client2 = TestClient::new();

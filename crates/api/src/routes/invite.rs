@@ -177,6 +177,12 @@ pub async fn revoke(
     let org_oid = parse_oid(&org_id)?;
     let invite_oid = parse_oid(&invite_id)?;
     ensure_admin(&state, org_oid, auth.user_id).await?;
+    state
+        .invites
+        .base
+        .find_one(bson::doc! { "_id": invite_oid, "org_id": org_oid })
+        .await?
+        .ok_or(ApiError::NotFound("Invite not found".to_string()))?;
 
     state
         .invites

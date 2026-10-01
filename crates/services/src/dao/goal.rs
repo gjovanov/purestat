@@ -47,8 +47,12 @@ impl GoalDao {
             .await
     }
 
-    pub async fn delete(&self, goal_id: ObjectId) -> DaoResult<u64> {
-        self.base.hard_delete(doc! { "_id": goal_id }).await
+    /// Deletes the goal only if it belongs to `site_id`: an id from another
+    /// site deletes nothing (GHSA-7f5h-5qwr-rxh5).
+    pub async fn delete(&self, goal_id: ObjectId, site_id: ObjectId) -> DaoResult<u64> {
+        self.base
+            .hard_delete(doc! { "_id": goal_id, "site_id": site_id })
+            .await
     }
 
     pub async fn delete_all_for_site(&self, site_id: ObjectId) -> DaoResult<u64> {

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
 use crate::extractors::auth::AuthUser;
-use crate::routes::org::{ensure_admin, ensure_member, parse_oid};
+use crate::routes::org::{ensure_admin, ensure_member, ensure_site_in_org, parse_oid};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -98,6 +98,7 @@ pub async fn update(
     let org_oid = parse_oid(&org_id)?;
     let site_oid = parse_oid(&site_id)?;
     ensure_admin(&state, org_oid, auth.user_id).await?;
+    ensure_site_in_org(&state, org_oid, site_oid).await?;
 
     let site = state
         .sites
@@ -121,6 +122,7 @@ pub async fn delete(
     let org_oid = parse_oid(&org_id)?;
     let site_oid = parse_oid(&site_id)?;
     ensure_admin(&state, org_oid, auth.user_id).await?;
+    ensure_site_in_org(&state, org_oid, site_oid).await?;
 
     state.goals.delete_all_for_site(site_oid).await?;
     state.sites.delete(site_oid).await?;

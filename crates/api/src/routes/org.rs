@@ -139,6 +139,24 @@ pub async fn ensure_member(
         .map_err(|_| ApiError::Forbidden("Not a member of this organization".to_string()))
 }
 
+/// The site, looked up WITHIN the org. A site id from another org is "not
+/// found", so the caller learns neither its data nor that it exists.
+/// `ensure_member` alone says nothing about a site id in the path: anyone can
+/// create an org, so membership of one is not access to every site
+/// (GHSA-7f5h-5qwr-rxh5).
+pub async fn ensure_site_in_org(
+    state: &AppState,
+    org_id: ObjectId,
+    site_id: ObjectId,
+) -> Result<purestat_db::models::Site, ApiError> {
+    state
+        .sites
+        .base
+        .find_one(bson::doc! { "_id": site_id, "org_id": org_id })
+        .await?
+        .ok_or(ApiError::NotFound("Site not found".to_string()))
+}
+
 pub async fn ensure_admin(
     state: &AppState,
     org_id: ObjectId,

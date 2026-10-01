@@ -50,6 +50,13 @@ pub struct TimeseriesPoint {
     pub metrics: serde_json::Value,
 }
 
+/// A calendar date as the API accepts one: `YYYY-MM-DD` and nothing else.
+/// Anything that is not a date is refused before it can reach a query.
+pub fn parse_date(s: &str) -> Result<chrono::NaiveDate, QueryError> {
+    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .map_err(|_| QueryError::InvalidQuery(format!("Invalid date: {s}")))
+}
+
 pub struct QueryService {
     client: Client,
 }
@@ -64,39 +71,14 @@ impl QueryService {
         site_id: u64,
         query: &StatsQuery,
     ) -> Result<StatsResult, QueryError> {
-        let (date_from, date_to) = self.resolve_date_range(query)?;
-
-        // Build base WHERE clause
-        let mut conditions = vec![
-            format!("site_id = {site_id}"),
-            format!("date >= '{date_from}'"),
-            format!("date <= '{date_to}'"),
-        ];
-
-        // Apply filters
-        if let Some(filters) = &query.filters {
-            for f in filters {
-                let col = Self::dimension_to_column(&f.dimension)?;
-                let condition = match f.operator.as_str() {
-                    "is" => format!("{col} = '{}'", f.value),
-                    "is_not" => format!("{col} != '{}'", f.value),
-                    "contains" => format!("{col} LIKE '%{}%'", f.value),
-                    _ => {
-                        return Err(QueryError::InvalidQuery(format!(
-                            "Unknown operator: {}",
-                            f.operator
-                        )))
-                    }
-                };
-                conditions.push(condition);
-            }
-        }
-
-        let where_clause = conditions.join(" AND ");
+        let (where_clause, binds) = Self::build_where(site_id, query)?;
 
         if let Some(dimensions) = &query.dimensions {
             // Dimension breakdown — always include visitors and pageviews
-            let dim_col = Self::dimension_to_column(&dimensions[0])?;
+            let dimension = dimensions.first().ok_or_else(|| {
+                QueryError::InvalidQuery("dimensions must name at least one dimension".to_string())
+            })?;
+            let dim_col = Self::dimension_to_column(dimension)?;
             let limit = query.limit.unwrap_or(10);
             let offset = query.offset.unwrap_or(0);
 
@@ -105,15 +87,14 @@ impl QueryService {
             );
 
             let rows = self
-                .client
-                .query(&sql)
+                .bound(&sql, &binds)
                 .fetch_all::<DimensionRow>()
                 .await?;
 
             let dimension_results: Vec<DimensionResult> = rows
                 .into_iter()
                 .map(|r| DimensionResult {
-                    dimension: dimensions[0].clone(),
+                    dimension: dimension.clone(),
                     value: r.dimension,
                     metrics: serde_json::json!({
                         "visitors": r.visitors,
@@ -144,8 +125,7 @@ impl QueryService {
             );
 
             let rows = self
-                .client
-                .query(&sql)
+                .bound(&sql, &binds)
                 .fetch_all::<TimeseriesRow>()
                 .await?;
 
@@ -172,8 +152,7 @@ impl QueryService {
             );
 
             let row = self
-                .client
-                .query(&sql)
+                .bound(&sql, &binds)
                 .fetch_one::<BaseAggregateRow>()
                 .await?;
 
@@ -182,8 +161,7 @@ impl QueryService {
                 "SELECT ifNaN(round(countIf(is_bounce = 1) / count() * 100, 1), 0) as bounce_rate, ifNaN(round(avg(duration), 0), 0) as visit_duration FROM sessions WHERE {where_clause}"
             );
             let session_row = self
-                .client
-                .query(&session_sql)
+                .bound(&session_sql, &binds)
                 .fetch_one::<SessionAggregateRow>()
                 .await
                 .unwrap_or(SessionAggregateRow {
@@ -204,9 +182,52 @@ impl QueryService {
         }
     }
 
-    fn resolve_date_range(&self, query: &StatsQuery) -> Result<(String, String), QueryError> {
+    /// The WHERE clause, and the values its `?` placeholders take, in order.
+    ///
+    /// Every caller-supplied VALUE is bound, never spliced into the SQL: the
+    /// columns come from the `dimension_to_column` allowlist, the dates are
+    /// parsed strictly, and filter values travel as bind parameters, so nothing
+    /// a request sends can change the query (GHSA-7f5h-5qwr-rxh5).
+    fn build_where(site_id: u64, query: &StatsQuery) -> Result<(String, Vec<String>), QueryError> {
+        let (date_from, date_to) = Self::resolve_date_range(query)?;
+        let mut conditions = vec![
+            format!("site_id = {site_id}"),
+            "date >= ?".to_string(),
+            "date <= ?".to_string(),
+        ];
+        let mut binds = vec![date_from, date_to];
+
+        if let Some(filters) = &query.filters {
+            for f in filters {
+                let col = Self::dimension_to_column(&f.dimension)?;
+                let condition = match f.operator.as_str() {
+                    "is" => format!("{col} = ?"),
+                    "is_not" => format!("{col} != ?"),
+                    // position(), not LIKE: a value's `%` and `_` stay literal.
+                    "contains" => format!("position({col}, ?) > 0"),
+                    _ => {
+                        return Err(QueryError::InvalidQuery(format!(
+                            "Unknown operator: {}",
+                            f.operator
+                        )))
+                    }
+                };
+                conditions.push(condition);
+                binds.push(f.value.clone());
+            }
+        }
+
+        Ok((conditions.join(" AND "), binds))
+    }
+
+    /// A query with the WHERE clause's values bound, in order.
+    fn bound(&self, sql: &str, binds: &[String]) -> clickhouse::query::Query {
+        binds.iter().fold(self.client.query(sql), |q, b| q.bind(b.as_str()))
+    }
+
+    fn resolve_date_range(query: &StatsQuery) -> Result<(String, String), QueryError> {
         if let (Some(from), Some(to)) = (&query.date_from, &query.date_to) {
-            return Ok((from.clone(), to.clone()));
+            return Ok((parse_date(from)?.to_string(), parse_date(to)?.to_string()));
         }
 
         let range = query.date_range.as_deref().unwrap_or("30d");
@@ -221,33 +242,6 @@ impl QueryService {
         };
 
         Ok((from.to_string(), today.to_string()))
-    }
-
-    fn build_metrics_sql(&self, metrics: &[String]) -> Result<String, QueryError> {
-        let parts: Vec<String> = metrics
-            .iter()
-            .map(|m| match m.as_str() {
-                "visitors" => Ok("uniq(visitor_hash) as visitors".to_string()),
-                "pageviews" => Ok("count() as pageviews".to_string()),
-                "bounce_rate" => Ok(
-                    "round(sum(is_bounce) / uniq(session_id) * 100, 1) as bounce_rate"
-                        .to_string(),
-                ),
-                "visit_duration" => {
-                    Ok("round(avg(duration), 0) as visit_duration".to_string())
-                }
-                "events" => Ok("count() as events".to_string()),
-                _ => Err(QueryError::InvalidQuery(format!(
-                    "Unknown metric: {m}"
-                ))),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        if parts.is_empty() {
-            Ok("uniq(visitor_hash) as visitors, count() as pageviews".to_string())
-        } else {
-            Ok(parts.join(", "))
-        }
     }
 
     fn dimension_to_column(dimension: &str) -> Result<&str, QueryError> {
@@ -300,4 +294,62 @@ struct BaseAggregateRow {
 struct SessionAggregateRow {
     bounce_rate: f64,
     visit_duration: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn query(filters: Vec<(&str, &str, &str)>) -> StatsQuery {
+        StatsQuery {
+            date_range: None,
+            date_from: Some("2026-09-01".into()),
+            date_to: Some("2026-09-30".into()),
+            metrics: vec![],
+            dimensions: None,
+            filters: Some(
+                filters
+                    .into_iter()
+                    .map(|(d, o, v)| StatsFilter { dimension: d.into(), operator: o.into(), value: v.into() })
+                    .collect(),
+            ),
+            interval: None,
+            limit: None,
+            offset: None,
+        }
+    }
+
+    #[test]
+    fn a_filter_value_is_bound_never_spliced() {
+        let hostile = "x' OR site_id != 0 OR '1'='1";
+        let (sql, binds) = QueryService::build_where(7, &query(vec![("path", "is", hostile)])).unwrap();
+        assert!(!sql.contains(hostile), "the value reached the SQL: {sql}");
+        assert!(!sql.contains('\''), "no quote in the SQL at all: {sql}");
+        assert_eq!(sql.matches('?').count(), binds.len());
+        assert_eq!(binds, vec!["2026-09-01", "2026-09-30", hostile]);
+    }
+
+    #[test]
+    fn contains_is_a_literal_substring_match() {
+        let (sql, binds) = QueryService::build_where(7, &query(vec![("page", "contains", "50%_off")])).unwrap();
+        assert!(sql.contains("position(path, ?) > 0"), "{sql}");
+        assert!(!sql.contains("LIKE"), "{sql}");
+        assert_eq!(binds.last().unwrap(), "50%_off");
+    }
+
+    #[test]
+    fn dates_must_be_dates() {
+        let mut q = query(vec![]);
+        q.date_from = Some("2026-09-01' OR '1'='1".into());
+        assert!(matches!(QueryService::build_where(7, &q), Err(QueryError::InvalidQuery(_))));
+        assert_eq!(parse_date("2026-09-01").unwrap().to_string(), "2026-09-01");
+        assert!(parse_date("2026-09-01 ").is_err());
+        assert!(parse_date("yesterday").is_err());
+    }
+
+    #[test]
+    fn unknown_columns_and_operators_are_refused() {
+        assert!(QueryService::build_where(7, &query(vec![("password", "is", "x")])).is_err());
+        assert!(QueryService::build_where(7, &query(vec![("path", "matches", "x")])).is_err());
+    }
 }
