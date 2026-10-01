@@ -50,6 +50,11 @@ pub struct ActivateRequest {
     pub token: String,
 }
 
+#[derive(Deserialize)]
+pub struct ResendActivationRequest {
+    pub email: String,
+}
+
 #[derive(Serialize)]
 pub struct MessageResponse {
     pub message: String,
@@ -73,33 +78,42 @@ pub async fn register(
     let user_id_oid = user.id.unwrap();
     let user_id = user_id_oid.to_hex();
 
-    // Generate activation code and send email (non-fatal)
-    let activation_token = nanoid::nanoid!(7);
-    if let Err(e) = state
-        .activation_codes
-        .create(
-            user_id_oid,
-            activation_token.clone(),
-            state.settings.email.activation_token_ttl_minutes,
-        )
-        .await
-    {
-        tracing::warn!("Failed to create activation code: {:?}", e);
-    } else if let Some(ref email_svc) = state.email {
-        let activation_url = format!(
-            "{}/auth/activate?userId={}&token={}",
-            state.settings.app.frontend_url, user_id, activation_token
-        );
-        if let Err(e) = email_svc
-            .send_activation(
-                &email,
-                &display_name,
-                &activation_url,
+    // If email service is not configured, auto-verify (dev/test mode)
+    if state.email.is_none() {
+        let _ = state
+            .users
+            .set_verified(user_id_oid, true)
+            .await;
+        tracing::info!("Auto-verified user (no email service configured): {}", &email);
+    } else {
+        // Generate activation code and send email (non-fatal)
+        let activation_token = nanoid::nanoid!(7);
+        if let Err(e) = state
+            .activation_codes
+            .create(
+                user_id_oid,
+                activation_token.clone(),
                 state.settings.email.activation_token_ttl_minutes,
             )
             .await
         {
-            tracing::warn!("Failed to send activation email: {:?}", e);
+            tracing::warn!("Failed to create activation code: {:?}", e);
+        } else if let Some(ref email_svc) = state.email {
+            let activation_url = format!(
+                "{}/auth/activate?userId={}&token={}",
+                state.settings.app.frontend_url, user_id, activation_token
+            );
+            if let Err(e) = email_svc
+                .send_activation(
+                    &email,
+                    &display_name,
+                    &activation_url,
+                    state.settings.email.activation_token_ttl_minutes,
+                )
+                .await
+            {
+                tracing::warn!("Failed to send activation email: {:?}", e);
+            }
         }
     }
 
@@ -260,8 +274,7 @@ pub async fn activate(
 
     state
         .users
-        .base
-        .update_by_id(user_id, bson::doc! { "$set": { "is_verified": true } })
+        .set_verified(user_id, true)
         .await
         .map_err(|e| ApiError::Internal(format!("Failed to activate: {}", e)))?;
 
@@ -280,6 +293,62 @@ pub async fn activate(
     Ok(Json(MessageResponse {
         message: "Account activated successfully. You can now sign in.".to_string(),
     }))
+}
+
+pub async fn resend_activation(
+    State(state): State<AppState>,
+    Json(body): Json<ResendActivationRequest>,
+) -> Result<Json<MessageResponse>, ApiError> {
+    // Always return success to avoid email enumeration
+    let ok = Json(MessageResponse {
+        message: "If that email is registered, a new activation link has been sent.".to_string(),
+    });
+
+    let user = match state.users.find_by_email(&body.email).await {
+        Ok(u) => u,
+        Err(_) => return Ok(ok),
+    };
+
+    if user.is_verified {
+        return Ok(ok);
+    }
+
+    let user_id = user.id.unwrap();
+    let activation_token = nanoid::nanoid!(7);
+    if let Err(e) = state
+        .activation_codes
+        .create(
+            user_id,
+            activation_token.clone(),
+            state.settings.email.activation_token_ttl_minutes,
+        )
+        .await
+    {
+        tracing::warn!("Failed to create activation code: {:?}", e);
+        return Ok(ok);
+    }
+
+    if let Some(ref email_svc) = state.email {
+        let activation_url = format!(
+            "{}/auth/activate?userId={}&token={}",
+            state.settings.app.frontend_url,
+            user_id.to_hex(),
+            activation_token
+        );
+        if let Err(e) = email_svc
+            .send_activation(
+                &user.email,
+                &user.display_name,
+                &activation_url,
+                state.settings.email.activation_token_ttl_minutes,
+            )
+            .await
+        {
+            tracing::warn!("Failed to send activation email: {:?}", e);
+        }
+    }
+
+    Ok(ok)
 }
 
 fn set_auth_cookies(headers: &mut HeaderMap, access_token: &str, refresh_token: &str) {

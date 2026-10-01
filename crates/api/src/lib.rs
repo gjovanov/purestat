@@ -22,7 +22,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/login", post(routes::auth::login))
         .route("/logout", post(routes::auth::logout))
         .route("/refresh", post(routes::auth::refresh))
-        .route("/activate", post(routes::auth::activate));
+        .route("/activate", post(routes::auth::activate))
+        .route("/resend-activation", post(routes::auth::resend_activation));
 
     // Protected user routes
     let me_routes = Router::new()
@@ -101,6 +102,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/portal", post(routes::stripe::portal))
         .route("/webhook", post(routes::stripe::webhook));
 
+    // Org-level analytics routes (multi-site)
+    let org_analytics_routes = Router::new()
+        .route("/stats", post(routes::stats::query_multi))
+        .route("/realtime", get(routes::realtime::current_visitors_multi));
+
     // Compose API
     let api = Router::new()
         .route("/health", get(routes::health::health))
@@ -114,6 +120,7 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/org/{org_id}/invite", invite_org_routes)
         .nest("/org/{org_id}/site/{site_id}/api-key", api_key_routes)
         .nest("/org/{org_id}/site/{site_id}", stats_routes)
+        .nest("/org/{org_id}/analytics", org_analytics_routes)
         .nest("/stripe", stripe_routes)
         // Public invite endpoints
         .route("/invite/{code}", get(routes::invite::info))

@@ -21,4 +21,6 @@ mod stats_test;
 #[cfg(test)]
 mod authz_test;
 #[cfg(test)]
+mod multi_site_stats_test;
+#[cfg(test)]
 mod stripe_test;
