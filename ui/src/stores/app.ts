@@ -39,7 +39,6 @@ export const useAppStore = defineStore('app', () => {
     })
     const data = await resp.json()
     if (!resp.ok) throw new Error(data.message || 'Registration failed')
-    setAuth(data)
     return data
   }
 

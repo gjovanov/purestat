@@ -18,7 +18,7 @@
     <v-divider />
 
     <v-list density="compact" nav>
-      <template v-if="orgStore.currentOrg && siteStore.currentSite">
+      <template v-if="orgStore.currentOrg">
         <v-list-item
           prepend-icon="mdi-chart-line"
           title="Dashboard"
@@ -99,8 +99,8 @@ const routeParams = computed(() => ({
 }))
 
 const dashboardRoute = computed(() => ({
-  name: 'dashboard',
-  params: routeParams.value,
+  name: 'org-dashboard',
+  params: { orgId: orgStore.currentOrg?.id || '' },
 }))
 
 watch(

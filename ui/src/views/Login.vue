@@ -32,6 +32,13 @@
 
             <v-alert v-if="error" type="error" density="compact" class="mb-4">
               {{ error }}
+              <template v-if="showResendActivation">
+                <br />
+                <a href="#" class="text-white font-weight-bold" @click.prevent="resendActivation">
+                  Resend activation email
+                </a>
+                <span v-if="resendSuccess" class="ml-2">— Sent!</span>
+              </template>
             </v-alert>
 
             <v-btn
@@ -72,6 +79,21 @@ const password = ref('')
 const showPassword = ref(false)
 const loading = ref(false)
 const error = ref('')
+const showResendActivation = ref(false)
+const resendSuccess = ref(false)
+
+async function resendActivation() {
+  try {
+    await fetch('/api/auth/resend-activation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.value }),
+    })
+    resendSuccess.value = true
+  } catch {
+    // silent
+  }
+}
 
 async function handleLogin() {
   const { valid } = await formRef.value.validate()
@@ -83,7 +105,10 @@ async function handleLogin() {
     const redirect = route.query.redirect as string
     router.push(redirect || '/orgs')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Login failed'
+    const msg = e instanceof Error ? e.message : 'Login failed'
+    error.value = msg
+    showResendActivation.value = msg.toLowerCase().includes('not activated')
+    resendSuccess.value = false
   } finally {
     loading.value = false
   }

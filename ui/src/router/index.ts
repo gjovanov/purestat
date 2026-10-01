@@ -23,6 +23,12 @@ const router = createRouter({
       meta: { public: true, layout: 'blank' },
     },
     {
+      path: '/auth/activate',
+      name: 'activate',
+      component: () => import('@/views/Activate.vue'),
+      meta: { public: true, layout: 'blank' },
+    },
+    {
       path: '/privacy',
       name: 'privacy',
       component: () => import('@/views/legal/PrivacyPolicy.vue'),
@@ -48,6 +54,11 @@ const router = createRouter({
       path: '/org/:orgId/sites',
       name: 'sites',
       component: () => import('@/views/Sites.vue'),
+    },
+    {
+      path: '/org/:orgId/dashboard',
+      name: 'org-dashboard',
+      component: () => import('@/views/Dashboard.vue'),
     },
     {
       path: '/org/:orgId/site/:siteId',
