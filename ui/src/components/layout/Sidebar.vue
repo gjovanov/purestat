@@ -24,21 +24,26 @@
           title="Dashboard"
           :to="dashboardRoute"
         />
-        <v-list-item
-          prepend-icon="mdi-bullseye-arrow"
-          title="Goals"
-          :to="{ name: 'goals', params: routeParams }"
-        />
-        <v-list-item
-          prepend-icon="mdi-key"
-          title="API Keys"
-          :to="{ name: 'api-keys', params: routeParams }"
-        />
-        <v-list-item
-          prepend-icon="mdi-cog"
-          title="Site Settings"
-          :to="{ name: 'site-settings', params: routeParams }"
-        />
+        <!-- Site pages need a site. On the org dashboard none is selected, and
+             a link with an empty siteId fails to resolve ("Missing required
+             param siteId"). -->
+        <template v-if="siteStore.currentSite">
+          <v-list-item
+            prepend-icon="mdi-bullseye-arrow"
+            title="Goals"
+            :to="{ name: 'goals', params: routeParams }"
+          />
+          <v-list-item
+            prepend-icon="mdi-key"
+            title="API Keys"
+            :to="{ name: 'api-keys', params: routeParams }"
+          />
+          <v-list-item
+            prepend-icon="mdi-cog"
+            title="Site Settings"
+            :to="{ name: 'site-settings', params: routeParams }"
+          />
+        </template>
       </template>
 
       <v-divider class="my-2" />
