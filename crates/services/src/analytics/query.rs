@@ -71,7 +71,28 @@ impl QueryService {
         site_id: u64,
         query: &StatsQuery,
     ) -> Result<StatsResult, QueryError> {
-        let (where_clause, binds) = Self::build_where(site_id, query)?;
+        self.query_stats_sites(&[site_id], query).await
+    }
+
+    /// The same query across several sites of one org. The route resolves
+    /// every id within the caller's org before it gets here.
+    pub async fn query_stats_multi(
+        &self,
+        site_ids: &[u64],
+        query: &StatsQuery,
+    ) -> Result<StatsResult, QueryError> {
+        if site_ids.is_empty() {
+            return Err(QueryError::InvalidQuery("No site IDs provided".to_string()));
+        }
+        self.query_stats_sites(site_ids, query).await
+    }
+
+    async fn query_stats_sites(
+        &self,
+        site_ids: &[u64],
+        query: &StatsQuery,
+    ) -> Result<StatsResult, QueryError> {
+        let (where_clause, binds) = Self::build_where(site_ids, query)?;
 
         if let Some(dimensions) = &query.dimensions {
             // Dimension breakdown — always include visitors and pageviews
@@ -188,10 +209,19 @@ impl QueryService {
     /// columns come from the `dimension_to_column` allowlist, the dates are
     /// parsed strictly, and filter values travel as bind parameters, so nothing
     /// a request sends can change the query (GHSA-7f5h-5qwr-rxh5).
-    fn build_where(site_id: u64, query: &StatsQuery) -> Result<(String, Vec<String>), QueryError> {
+    fn build_where(site_ids: &[u64], query: &StatsQuery) -> Result<(String, Vec<String>), QueryError> {
         let (date_from, date_to) = Self::resolve_date_range(query)?;
+        // Site ids are u64s the route derived from ObjectIds it resolved within
+        // the caller's org, never caller text, so they are safe as literals.
+        let site_predicate = match site_ids {
+            [one] => format!("site_id = {one}"),
+            many => format!(
+                "site_id IN ({})",
+                many.iter().map(u64::to_string).collect::<Vec<_>>().join(", ")
+            ),
+        };
         let mut conditions = vec![
-            format!("site_id = {site_id}"),
+            site_predicate,
             "date >= ?".to_string(),
             "date <= ?".to_string(),
         ];
@@ -320,9 +350,18 @@ mod tests {
     }
 
     #[test]
+    fn several_sites_are_one_in_list_and_values_stay_bound() {
+        let hostile = "x' OR '1'='1";
+        let (sql, binds) = QueryService::build_where(&[7, 9], &query(vec![("path", "is", hostile)])).unwrap();
+        assert!(sql.starts_with("site_id IN (7, 9) AND "), "{sql}");
+        assert!(!sql.contains(hostile), "{sql}");
+        assert_eq!(binds.last().map(String::as_str), Some(hostile));
+    }
+
+    #[test]
     fn a_filter_value_is_bound_never_spliced() {
         let hostile = "x' OR site_id != 0 OR '1'='1";
-        let (sql, binds) = QueryService::build_where(7, &query(vec![("path", "is", hostile)])).unwrap();
+        let (sql, binds) = QueryService::build_where(&[7], &query(vec![("path", "is", hostile)])).unwrap();
         assert!(!sql.contains(hostile), "the value reached the SQL: {sql}");
         assert!(!sql.contains('\''), "no quote in the SQL at all: {sql}");
         assert_eq!(sql.matches('?').count(), binds.len());
@@ -331,7 +370,7 @@ mod tests {
 
     #[test]
     fn contains_is_a_literal_substring_match() {
-        let (sql, binds) = QueryService::build_where(7, &query(vec![("page", "contains", "50%_off")])).unwrap();
+        let (sql, binds) = QueryService::build_where(&[7], &query(vec![("page", "contains", "50%_off")])).unwrap();
         assert!(sql.contains("position(path, ?) > 0"), "{sql}");
         assert!(!sql.contains("LIKE"), "{sql}");
         assert_eq!(binds.last().unwrap(), "50%_off");
@@ -341,7 +380,7 @@ mod tests {
     fn dates_must_be_dates() {
         let mut q = query(vec![]);
         q.date_from = Some("2026-09-01' OR '1'='1".into());
-        assert!(matches!(QueryService::build_where(7, &q), Err(QueryError::InvalidQuery(_))));
+        assert!(matches!(QueryService::build_where(&[7], &q), Err(QueryError::InvalidQuery(_))));
         assert_eq!(parse_date("2026-09-01").unwrap().to_string(), "2026-09-01");
         assert!(parse_date("2026-09-01 ").is_err());
         assert!(parse_date("yesterday").is_err());
@@ -349,7 +388,7 @@ mod tests {
 
     #[test]
     fn unknown_columns_and_operators_are_refused() {
-        assert!(QueryService::build_where(7, &query(vec![("password", "is", "x")])).is_err());
-        assert!(QueryService::build_where(7, &query(vec![("path", "matches", "x")])).is_err());
+        assert!(QueryService::build_where(&[7], &query(vec![("password", "is", "x")])).is_err());
+        assert!(QueryService::build_where(&[7], &query(vec![("path", "matches", "x")])).is_err());
     }
 }

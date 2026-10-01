@@ -92,6 +92,18 @@ impl UserDao {
         Ok(result.modified_count > 0)
     }
 
+    pub async fn set_verified(&self, user_id: ObjectId, verified: bool) -> DaoResult<bool> {
+        let result = self
+            .base
+            .collection()
+            .update_one(
+                doc! { "_id": user_id },
+                doc! { "$set": { "is_verified": verified, "updated_at": DateTime::now() } },
+            )
+            .await?;
+        Ok(result.modified_count > 0)
+    }
+
     pub async fn update_profile(
         &self,
         user_id: ObjectId,

@@ -83,7 +83,9 @@ impl TestClient {
         if let Some(token) = data["access_token"].as_str() {
             self.access_token = Some(token.to_string());
         } else {
-            // Registration now waits for the emailed activation link.
+            // Registration answers with a message. With an email service the
+            // account waits for its activation link; without one, the API
+            // auto-verifies it. The helper handles both, then signs in.
             self.activate_and_login(email, password).await;
         }
         data
@@ -103,6 +105,11 @@ impl TestClient {
             .expect("find user")
             .expect("the user was just registered");
         let user_id = user.get_object_id("_id").expect("user _id");
+        if user.get_bool("is_verified").unwrap_or(false) {
+            // Auto-verified: no email service configured.
+            self.login(email, password).await;
+            return;
+        }
         let code = db
             .collection::<bson::Document>("activation_codes")
             .find_one(bson::doc! { "user_id": user_id })
