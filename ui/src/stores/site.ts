@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useHttpClient } from '@/composables/useHttpClient'
 
-interface Site {
+export interface Site {
   id: string
   org_id: string
   domain: string
@@ -15,7 +15,16 @@ interface Site {
 export const useSiteStore = defineStore('site', () => {
   const sites = ref<Site[]>([])
   const currentSite = ref<Site | null>(null)
+  const selectedSiteIds = ref<string[]>([])
   const loading = ref(false)
+
+  const siteDomainsById = computed(() => {
+    const map: Record<string, string> = {}
+    for (const s of sites.value) {
+      map[s.id] = s.domain
+    }
+    return map
+  })
 
   async function fetchSites(orgId: string) {
     const { get } = useHttpClient()
@@ -64,5 +73,21 @@ export const useSiteStore = defineStore('site', () => {
     currentSite.value = sites.value.find((s) => s.id === siteId) || null
   }
 
-  return { sites, currentSite, loading, fetchSites, fetchSite, createSite, updateSite, deleteSite, selectSite }
+  function setSelectedSiteIds(ids: string[]) {
+    selectedSiteIds.value = ids
+  }
+
+  function selectAllSites() {
+    selectedSiteIds.value = sites.value.map((s) => s.id)
+  }
+
+  function clearSelection() {
+    selectedSiteIds.value = []
+  }
+
+  return {
+    sites, currentSite, selectedSiteIds, loading, siteDomainsById,
+    fetchSites, fetchSite, createSite, updateSite, deleteSite, selectSite,
+    setSelectedSiteIds, selectAllSites, clearSelection,
+  }
 })

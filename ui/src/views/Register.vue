@@ -46,8 +46,12 @@
             <v-alert v-if="error" type="error" density="compact" class="mb-4">
               {{ error }}
             </v-alert>
+            <v-alert v-if="success" type="success" density="compact" class="mb-4">
+              {{ success }}
+            </v-alert>
 
             <v-btn
+              v-if="!success"
               type="submit"
               color="primary"
               block
@@ -55,6 +59,15 @@
               :loading="loading"
             >
               Create Account
+            </v-btn>
+            <v-btn
+              v-else
+              color="primary"
+              block
+              size="large"
+              to="/login"
+            >
+              Go to Login
             </v-btn>
           </v-form>
 
@@ -70,12 +83,8 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useAppStore } from '@/stores/app'
 import { useValidation } from '@/composables/useValidation'
 
-const appStore = useAppStore()
-const router = useRouter()
 const { rules } = useValidation()
 
 const formRef = ref()
@@ -86,15 +95,28 @@ const password = ref('')
 const showPassword = ref(false)
 const loading = ref(false)
 const error = ref('')
+const success = ref('')
 
 async function handleRegister() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
   loading.value = true
   error.value = ''
+  success.value = ''
   try {
-    await appStore.register(email.value, username.value, password.value, displayName.value || undefined)
-    router.push('/orgs')
+    const resp = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: email.value,
+        username: username.value,
+        password: password.value,
+        display_name: displayName.value || username.value,
+      }),
+    })
+    const data = await resp.json()
+    if (!resp.ok) throw new Error(data.message || 'Registration failed')
+    success.value = data.message || 'Registration successful. Please check your email to activate your account.'
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Registration failed'
   } finally {

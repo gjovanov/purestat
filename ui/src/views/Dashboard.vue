@@ -3,9 +3,9 @@
     <!-- Header -->
     <div class="d-flex align-center flex-wrap ga-3 mb-4">
       <h1 class="text-h5 font-weight-bold mr-auto">
-        {{ siteStore.currentSite?.domain }}
+        {{ headerTitle }}
       </h1>
-      <RealtimeBadge :count="realtimeStore.currentVisitors" />
+      <RealtimeBadge :count="realtimeStore.currentVisitors" :visitors="realtimeStore.visitors" />
       <DatePicker :model-value="statsStore.dateRange" @change="onDateRangeChange" />
     </div>
 
@@ -51,13 +51,13 @@
       </v-col>
     </v-row>
 
-    <!-- Goals -->
-    <GoalsTable :goals="goalsStore.goals" />
+    <!-- Goals (single-site only) -->
+    <GoalsTable v-if="singleSiteId" :goals="goalsStore.goals" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useOrgStore } from '@/stores/org'
 import { useSiteStore } from '@/stores/site'
@@ -83,16 +83,42 @@ const realtimeStore = useRealtimeStore()
 const goalsStore = useGoalsStore()
 
 const orgId = route.params.orgId as string
-const siteId = route.params.siteId as string
+const singleSiteId = route.params.siteId as string | undefined
+
+const headerTitle = computed(() => {
+  if (singleSiteId) {
+    return siteStore.currentSite?.domain || ''
+  }
+  const count = siteStore.selectedSiteIds.length
+  if (count === 0) return 'No sites selected'
+  if (count === 1) {
+    return siteStore.siteDomainsById[siteStore.selectedSiteIds[0]] || '1 site'
+  }
+  return `${count} sites`
+})
 
 onMounted(async () => {
-  await Promise.all([
-    orgStore.fetchOrg(orgId),
-    siteStore.fetchSite(orgId, siteId),
-    goalsStore.fetchGoals(orgId, siteId),
-  ])
-  loadDashboard()
-  realtimeStore.startPolling(orgId, siteId)
+  if (singleSiteId) {
+    // Single-site mode (legacy route)
+    await Promise.all([
+      orgStore.fetchOrg(orgId),
+      siteStore.fetchSite(orgId, singleSiteId),
+      goalsStore.fetchGoals(orgId, singleSiteId),
+    ])
+    loadDashboard()
+    realtimeStore.startPolling(orgId, singleSiteId)
+  } else {
+    // Multi-site mode
+    await orgStore.fetchOrg(orgId)
+    if (siteStore.sites.length === 0) {
+      await siteStore.fetchSites(orgId)
+    }
+    if (siteStore.selectedSiteIds.length === 0) {
+      siteStore.selectAllSites()
+    }
+    loadDashboard()
+    startMultiPolling()
+  }
 })
 
 onUnmounted(() => {
@@ -100,13 +126,36 @@ onUnmounted(() => {
 })
 
 function loadDashboard() {
-  statsStore.fetchDashboard(orgId, siteId)
+  if (singleSiteId) {
+    statsStore.fetchDashboard(orgId, singleSiteId)
+  } else if (siteStore.selectedSiteIds.length > 0) {
+    statsStore.fetchMultiSiteDashboard(orgId, siteStore.selectedSiteIds)
+  }
+}
+
+function startMultiPolling() {
+  if (siteStore.selectedSiteIds.length > 0) {
+    realtimeStore.startPollingMulti(orgId, siteStore.selectedSiteIds)
+  }
 }
 
 function onDateRangeChange(range: string) {
   statsStore.setDateRange(range)
   loadDashboard()
 }
+
+// Watch for site selection changes in multi-site mode
+watch(
+  () => siteStore.selectedSiteIds,
+  () => {
+    if (!singleSiteId) {
+      realtimeStore.stopPolling()
+      loadDashboard()
+      startMultiPolling()
+    }
+  },
+  { deep: true },
+)
 
 watch(() => statsStore.filters, loadDashboard, { deep: true })
 </script>

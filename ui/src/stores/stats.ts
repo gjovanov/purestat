@@ -103,6 +103,76 @@ export const useStatsStore = defineStore('stats', () => {
     }
   }
 
+  async function fetchMultiSiteDashboard(orgId: string, siteIds: string[]) {
+    loading.value = true
+    const { post } = useHttpClient()
+    const base = `/org/${orgId}/analytics/stats`
+    const f = filters.value.length ? filters.value : undefined
+
+    try {
+      const [overviewData, timeseriesData, sourcesData, pagesData, locationsData, devicesData] =
+        await Promise.all([
+          post<StatsData>(base, {
+            site_ids: siteIds,
+            date_range: dateRange.value,
+            date_from: dateFrom.value,
+            date_to: dateTo.value,
+            metrics: ['visitors', 'pageviews', 'bounce_rate', 'visit_duration'],
+            filters: f,
+          }),
+          post<StatsData>(base, {
+            site_ids: siteIds,
+            date_range: dateRange.value,
+            date_from: dateFrom.value,
+            date_to: dateTo.value,
+            metrics: ['visitors', 'pageviews'],
+            interval: interval.value,
+            filters: f,
+          }),
+          post<StatsData>(base, {
+            site_ids: siteIds,
+            date_range: dateRange.value,
+            metrics: ['visitors', 'pageviews'],
+            dimensions: ['source'],
+            limit: 10,
+            filters: f,
+          }),
+          post<StatsData>(base, {
+            site_ids: siteIds,
+            date_range: dateRange.value,
+            metrics: ['visitors', 'pageviews'],
+            dimensions: ['page'],
+            limit: 10,
+            filters: f,
+          }),
+          post<StatsData>(base, {
+            site_ids: siteIds,
+            date_range: dateRange.value,
+            metrics: ['visitors'],
+            dimensions: ['country'],
+            limit: 10,
+            filters: f,
+          }),
+          post<StatsData>(base, {
+            site_ids: siteIds,
+            date_range: dateRange.value,
+            metrics: ['visitors'],
+            dimensions: ['device_type'],
+            filters: f,
+          }),
+        ])
+
+      overview.value = overviewData.metrics || {}
+      timeseries.value = timeseriesData.timeseries || []
+      topSources.value = sourcesData.dimensions || []
+      topPages.value = pagesData.dimensions || []
+      locations.value = locationsData.dimensions || []
+      devices.value = devicesData.dimensions || []
+    } finally {
+      loading.value = false
+    }
+  }
+
   function setDateRange(range: string) {
     dateRange.value = range
     dateFrom.value = null
@@ -141,6 +211,7 @@ export const useStatsStore = defineStore('stats', () => {
     devices,
     loading,
     fetchDashboard,
+    fetchMultiSiteDashboard,
     setDateRange,
     setCustomRange,
     addFilter,
