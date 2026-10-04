@@ -371,7 +371,7 @@ Key properties:
 - **Daily salt rotation** -- The salt changes every day at midnight UTC, making it impossible to track a visitor across days.
 - **Domain-scoped** -- The same visitor on different domains produces different hashes.
 - **One-way** -- SHA-256 is irreversible; the original IP and user agent cannot be recovered from the hash.
-- **IP not stored** -- The raw IP address is used only during hash computation and is never written to the database.
+- **IP not stored** -- The raw IP address is used only during hash computation and is never written to the database. The rate limiter's counters in Redis are keyed by an HMAC of the address, not the address ([API: Rate Limiting](api.md#rate-limiting)).
 - **No cross-site tracking** -- Because the domain is part of the hash input, visitors cannot be correlated across different websites.
 
 This approach complies with GDPR and other privacy regulations by design, as no personally identifiable information is stored.

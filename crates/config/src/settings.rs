@@ -17,6 +17,8 @@ pub struct Settings {
     pub tracker: TrackerSettings,
     pub privacy: PrivacySettings,
     pub geo: GeoSettings,
+    #[serde(default)]
+    pub rate_limit: RateLimitSettings,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -124,6 +126,52 @@ pub struct PrivacySettings {
 #[derive(Debug, Deserialize, Clone)]
 pub struct GeoSettings {
     pub geoip_db_path: String,
+}
+
+/// Requests per minute per client address, by endpoint group (docs/api.md).
+/// PURESTAT__RATE_LIMIT__{ENABLED,AUTH_RPM,API_RPM,TRACKER_RPM,STATS_RPM}.
+#[derive(Debug, Deserialize, Clone)]
+pub struct RateLimitSettings {
+    #[serde(default = "default_rate_limit_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_auth_rpm")]
+    pub auth_rpm: u32,
+    #[serde(default = "default_api_rpm")]
+    pub api_rpm: u32,
+    #[serde(default = "default_tracker_rpm")]
+    pub tracker_rpm: u32,
+    #[serde(default = "default_stats_rpm")]
+    pub stats_rpm: u32,
+}
+
+impl Default for RateLimitSettings {
+    fn default() -> Self {
+        Self {
+            enabled: default_rate_limit_enabled(),
+            auth_rpm: default_auth_rpm(),
+            api_rpm: default_api_rpm(),
+            tracker_rpm: default_tracker_rpm(),
+            stats_rpm: default_stats_rpm(),
+        }
+    }
+}
+
+fn default_rate_limit_enabled() -> bool {
+    true
+}
+fn default_auth_rpm() -> u32 {
+    10
+}
+/// One dashboard load is about 15 calls, and realtime polls twice a minute.
+fn default_api_rpm() -> u32 {
+    300
+}
+fn default_tracker_rpm() -> u32 {
+    1000
+}
+/// One multi-site dashboard load issues 12 stats calls.
+fn default_stats_rpm() -> u32 {
+    120
 }
 
 impl Settings {

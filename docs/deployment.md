@@ -194,12 +194,24 @@ All configuration is done via environment variables using the `PURESTAT__SECTION
 
 ### Rate Limiting
 
+Limits are per client IP address, over a 60-second sliding window in Redis. The groups, headers and 429 response are described in [the API reference](api.md#rate-limiting).
+
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `PURESTAT__RATE_LIMIT__ENABLED` | `true` | Set to `false` to turn rate limiting off |
 | `PURESTAT__RATE_LIMIT__AUTH_RPM` | `10` | Auth endpoints: requests per minute per IP |
-| `PURESTAT__RATE_LIMIT__API_RPM` | `100` | API endpoints: requests per minute per IP |
+| `PURESTAT__RATE_LIMIT__API_RPM` | `300` | API endpoints: requests per minute per IP. One dashboard load makes about 15 calls, and realtime polls twice a minute. |
 | `PURESTAT__RATE_LIMIT__TRACKER_RPM` | `1000` | Tracker endpoint: requests per minute per IP |
-| `PURESTAT__RATE_LIMIT__STATS_RPM` | `30` | Stats/export endpoints: requests per minute per IP |
+| `PURESTAT__RATE_LIMIT__STATS_RPM` | `120` | Stats/export endpoints: requests per minute per IP. One multi-site dashboard load makes 12 stats calls. |
+
+The limits apply per client, so the API must see the client's address:
+
+- **Behind a reverse proxy,** the proxy in front must append the address it saw to `X-Forwarded-For` (nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`), and every proxy between it and the API must pass that header on. Proxies on private addresses are skipped when the API reads the header from the right.
+- **Without a proxy,** the API uses the address of the connection.
+
+If every client seems to share one address, all of them share one limit. Check that the header reaches the API.
+
+`.env.example` sets much higher limits for local development and the integration tests, which sign up and log in from one address.
 
 ### Logging
 

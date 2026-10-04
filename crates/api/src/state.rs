@@ -38,6 +38,7 @@ pub struct AppState {
     pub privacy: Arc<PrivacyEngine>,
     pub geo: Arc<GeoService>,
     pub session: Arc<SessionService>,
+    pub redis: redis::aio::ConnectionManager,
 }
 
 impl AppState {
@@ -87,6 +88,7 @@ impl AppState {
         ));
         session.start_session_sweeper(60);
 
+        let limiter_redis = redis.clone();
         let privacy = Arc::new(PrivacyEngine::new(
             redis,
             settings.privacy.salt_ttl_hours,
@@ -94,6 +96,7 @@ impl AppState {
 
         Ok(Self {
             db,
+            redis: limiter_redis,
             settings,
             auth,
             users,
