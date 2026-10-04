@@ -41,7 +41,11 @@ async fn main() -> anyhow::Result<()> {
     let addr = format!("{}:{}", settings.app.host, settings.app.port);
     info!(addr = %addr, "Starting Purestat API server");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }

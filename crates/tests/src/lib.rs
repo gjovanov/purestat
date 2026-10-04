@@ -24,3 +24,5 @@ mod authz_test;
 mod multi_site_stats_test;
 #[cfg(test)]
 mod stripe_test;
+#[cfg(test)]
+mod rate_limit_test;

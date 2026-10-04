@@ -23,46 +23,64 @@ Tokens are returned as httpOnly cookies on successful calls to `/api/auth/regist
 
 ## Error Responses
 
-All errors follow a consistent JSON format:
+All errors share one JSON shape: a short machine-readable code and a message for people.
 
 ```json
 {
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Email is required"
-  }
+  "error": "not_found",
+  "message": "Site not found"
 }
 ```
 
-Common error codes:
-
-| HTTP Status | Code | Description |
-|-------------|------|-------------|
-| 400 | `VALIDATION_ERROR` | Invalid or missing request parameters |
-| 401 | `UNAUTHORIZED` | Missing or invalid authentication |
-| 403 | `FORBIDDEN` | Insufficient permissions |
-| 404 | `NOT_FOUND` | Resource not found |
-| 409 | `CONFLICT` | Resource already exists |
-| 429 | `RATE_LIMITED` | Too many requests |
-| 500 | `INTERNAL_ERROR` | Server error |
+| HTTP Status | `error` | Description |
+|-------------|---------|-------------|
+| 400 | `bad_request` | Invalid or missing request parameters |
+| 401 | `unauthorized` | Missing or invalid authentication |
+| 403 | `forbidden` | Insufficient permissions |
+| 404 | `not_found` | Resource not found, or not in the organization named in the path |
+| 409 | `conflict` | Resource already exists |
+| 422 | `validation` | The request is well-formed but a value is not acceptable |
+| 429 | `rate_limited` | Too many requests (see below) |
+| 500 | `internal` | Server error |
 
 ## Rate Limiting
 
-Rate limits are enforced per IP address via Redis sliding window counters.
+Requests are limited per client IP address and endpoint group, over a 60-second sliding window kept in Redis, so every API replica shares the same counts.
 
-| Endpoint Group | Limit |
-|----------------|-------|
-| Auth endpoints | 10 requests / minute |
-| Tracker (event ingest) | 1000 requests / minute |
-| API (authenticated) | 100 requests / minute |
-| Stats / Export | 30 requests / minute |
+| Endpoint group | Paths | Requests per minute |
+|----------------|-------|---------------------|
+| Auth | `/api/auth/*`, `/api/oauth/*` | 10 |
+| Tracker (event ingest) | `/api/event` | 1000 |
+| Stats / Export | every path ending in `/stats` or `/export` | 120 |
+| API | every other `/api/*` path | 300 |
 
-When rate limited, the response includes:
+`/api/health` and `/api/stripe/webhook` are not limited. The limits are configurable: see [Deployment](deployment.md#rate-limiting).
+
+Every limited response says what the limit is and how much of it is left:
+
+```
+X-RateLimit-Limit: 300
+X-RateLimit-Remaining: 287
+```
+
+Past the limit, the request is refused before it reaches the endpoint:
 
 ```
 HTTP/1.1 429 Too Many Requests
-Retry-After: 30
+Retry-After: 12
+X-RateLimit-Limit: 10
+X-RateLimit-Remaining: 0
+
+{"error": "rate_limited", "message": "Too many requests. Retry in 12 s."}
 ```
+
+`Retry-After` is the number of seconds until the oldest counted request leaves the window. A refused request is not counted, so a client that waits that long is let through again.
+
+**The client address.** A proxy in front of the API appends the address it saw to `X-Forwarded-For`, so everything to the left of that entry was written by the client and is not trusted. The client is the first address from the right that is not a proxy hop: private, loopback, link-local or carrier-grade NAT (`100.64.0.0/10`). Without one, a public `X-Real-IP` is used, then the address of the TCP connection.
+
+**What is counted.** An IPv4 client is counted by its address, and an IPv6 client by its `/64`, because one IPv6 host usually holds a whole `/64` and could otherwise step around a limit by changing addresses. The counters are stored in Redis under a keyed hash (HMAC-SHA256) of that, never under the address itself: like the rest of purestat, the limiter does not store IP addresses.
+
+**If Redis is unavailable,** or does not answer within 500 ms, the request is let through and the API logs a warning. An outage of the limiter does not take logins and event ingest down with it.
 
 ---
 
