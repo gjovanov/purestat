@@ -6,11 +6,20 @@
 	}
 
 	handle /js/* {
+		# The tracker every site loads keeps one URL, so it must refresh.
+		header >Cache-Control "public, max-age=300"
 		reverse_proxy tracker:3001
 	}
 
 	handle {
 		root * /srv
+		# Vite content-hashes every file under /assets: it never changes.
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		# index.html, and every SPA route it answers, revalidates, so a deploy
+		# reaches browsers on their next page load.
+		@page not path /assets/* /js/*
+		header @page Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
 	}
