@@ -52,6 +52,31 @@ pub struct JwtSettings {
     pub issuer: String,
 }
 
+/// The shortest JWT secret the API accepts, in bytes.
+pub const MIN_JWT_SECRET_LEN: usize = 32;
+
+impl JwtSettings {
+    /// Why `secret` must not sign tokens, or `None` when it may.
+    ///
+    /// The secret signs every login token, so anyone who knows it can forge a
+    /// token for any user. The values this repository ships as placeholders
+    /// (all starting with `change-me`) are public, which is why the API
+    /// refuses to start on one rather than run with it.
+    pub fn secret_problem(&self) -> Option<&'static str> {
+        let secret = self.secret.as_str();
+        if secret.is_empty() {
+            return Some("is not set");
+        }
+        if secret.to_ascii_lowercase().starts_with("change-me") {
+            return Some("is a placeholder published in the purestat repository");
+        }
+        if secret.len() < MIN_JWT_SECRET_LEN {
+            return Some("is shorter than 32 bytes");
+        }
+        None
+    }
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct RedisSettings {
     pub url: String,
@@ -197,8 +222,9 @@ impl Settings {
             .set_default("clickhouse.database", "purestat")?
             .set_default("clickhouse.user", "purestat")?
             .set_default("clickhouse.password", "purestat_ch_pass")?
-            // JWT defaults
-            .set_default("jwt.secret", "change-me-in-production-use-a-long-random-string")?
+            // JWT defaults. No secret: the API refuses to start until one is
+            // set (JwtSettings::secret_problem).
+            .set_default("jwt.secret", "")?
             .set_default("jwt.access_token_ttl_secs", 86400)?
             .set_default("jwt.refresh_token_ttl_secs", 604800)?
             .set_default("jwt.issuer", "purestat")?
@@ -224,5 +250,51 @@ impl Settings {
             .build()?;
 
         config.try_deserialize()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn jwt(secret: &str) -> JwtSettings {
+        JwtSettings {
+            secret: secret.to_string(),
+            access_token_ttl_secs: 86400,
+            refresh_token_ttl_secs: 604800,
+            issuer: "purestat".to_string(),
+        }
+    }
+
+    #[test]
+    fn an_unset_secret_is_refused() {
+        assert_eq!(jwt("").secret_problem(), Some("is not set"));
+    }
+
+    #[test]
+    fn every_placeholder_the_repository_has_shipped_is_refused() {
+        for placeholder in [
+            "change-me-in-production-use-a-long-random-string", // the old code default, .env.example
+            "change-me-in-production",                           // docker-compose.prod.yml's fallback
+            "CHANGE-ME-to-something-long-enough-to-pass-0123456789",
+        ] {
+            assert!(jwt(placeholder).secret_problem().is_some(), "{placeholder}");
+        }
+    }
+
+    #[test]
+    fn a_short_secret_is_refused() {
+        assert_eq!(
+            jwt(&"x".repeat(MIN_JWT_SECRET_LEN - 1)).secret_problem(),
+            Some("is shorter than 32 bytes")
+        );
+    }
+
+    #[test]
+    fn a_long_random_secret_is_accepted() {
+        // What `openssl rand -hex 32` prints.
+        let secret = "9f2c4e7a1b3d5f6e8a0c2e4f6a8b0d1e3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e";
+        assert_eq!(jwt(secret).secret_problem(), None);
+        assert_eq!(jwt(&"y".repeat(MIN_JWT_SECRET_LEN)).secret_problem(), None);
     }
 }

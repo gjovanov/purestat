@@ -68,7 +68,7 @@ services:
       PURESTAT__CLICKHOUSE__DATABASE: purestat
       PURESTAT__CLICKHOUSE__USER: purestat
       PURESTAT__CLICKHOUSE__PASSWORD: purestat_ch_pass
-      PURESTAT__JWT__SECRET: change-me-in-production-use-a-long-random-string
+      PURESTAT__JWT__SECRET: ${JWT_SECRET:?Set JWT_SECRET to a long random value, for example the output of openssl rand -hex 32}
       PURESTAT__JWT__ACCESS_TOKEN_TTL_SECS: "86400"
       PURESTAT__JWT__REFRESH_TOKEN_TTL_SECS: "604800"
       PURESTAT__JWT__ISSUER: purestat
