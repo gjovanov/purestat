@@ -57,8 +57,11 @@ Output: `tracker-js/dist/purestat.js`
 The `docker-compose.full.yml` file runs the complete application stack including the backend, frontend, and all infrastructure services.
 
 ```bash
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
 docker-compose -f docker-compose.full.yml up -d
 ```
+
+`JWT_SECRET` signs every login token. Compose refuses to start the stack without it, and the API refuses a `change-me` placeholder or anything under 32 bytes (see [Auth](#auth)).
 
 Services started:
 - `mongo` -- MongoDB 7
@@ -101,6 +104,7 @@ docker build -t purestat-ui -f Dockerfile.ui .
 The production compose file adds Caddy as a reverse proxy with automatic HTTPS via Let's Encrypt.
 
 ```bash
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
 docker-compose -f docker-compose.prod.yml up -d
 ```
 
@@ -163,9 +167,14 @@ All configuration is done via environment variables using the `PURESTAT__SECTION
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PURESTAT__AUTH__JWT_SECRET` | (required) | Secret key for JWT signing |
-| `PURESTAT__AUTH__JWT_EXPIRY` | `7d` | JWT token expiry duration |
-| `PURESTAT__AUTH__HASH_SALT` | (required) | Salt for daily visitor hash rotation |
+| `PURESTAT__JWT__SECRET` | (none, required) | Signs every login token. At least 32 bytes; generate it with `openssl rand -hex 32` |
+| `PURESTAT__JWT__ACCESS_TOKEN_TTL_SECS` | `86400` | Access token lifetime, in seconds |
+| `PURESTAT__JWT__REFRESH_TOKEN_TTL_SECS` | `604800` | Refresh token lifetime, in seconds |
+| `PURESTAT__JWT__ISSUER` | `purestat` | The tokens' issuer |
+
+Anyone who knows the JWT secret can sign in as any user, so the API **refuses to start** when it is unset, shorter than 32 bytes, or one of the `change-me…` placeholders this repository has shipped in `.env.example` and the compose files.
+
+The visitor-hash salt needs no setting: the API generates a random one per day and keeps it in Redis (`PURESTAT__PRIVACY__SALT_TTL_HOURS`, default `48`).
 
 ### OAuth
 

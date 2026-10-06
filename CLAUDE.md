@@ -44,6 +44,8 @@ cd ui && bun install && bun run dev
 
 All config via `PURESTAT__SECTION__KEY` env vars. See `.env.example`.
 
+The API refuses to start without `PURESTAT__JWT__SECRET`, with a `change-me…` placeholder, or with one under 32 bytes (`JwtSettings::secret_problem`). It signs every login token, and the placeholders are public in this repo.
+
 ## Deployment
 
 Deployment configuration lives in the private sibling repo `gjovanov/purestat-deploy`: Kustomize manifests under `k8s/base/` + `k8s/overlays/prod/`. One pod on `k8s-worker-2`, NodePort 30050 (HTTP → Caddy → api:3000 + tracker:3001 + the UI's static files).

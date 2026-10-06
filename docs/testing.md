@@ -56,6 +56,8 @@ The integration tests require running instances of MongoDB, ClickHouse, and Redi
 docker-compose up -d
 ```
 
+They also need the API running (`API_URL`, default `http://localhost:3000`). Start it as the README shows: it refuses to start without a JWT secret of its own in `.env`.
+
 ### Run all integration tests
 
 ```bash

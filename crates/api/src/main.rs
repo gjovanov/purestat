@@ -17,6 +17,13 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let settings = Settings::load()?;
+    if let Some(problem) = settings.jwt.secret_problem() {
+        anyhow::bail!(
+            "PURESTAT__JWT__SECRET {problem}. It signs every login token, and anyone who \
+             knows it can sign in as any user. Set it to a long random value, for example \
+             the output of: openssl rand -hex 32"
+        );
+    }
     info!("Settings loaded");
 
     // Connect to MongoDB

@@ -120,7 +120,11 @@ This starts MongoDB, ClickHouse, and Redis.
 
 ### 3. Run the backend
 
+The API refuses to start without a JWT secret of its own, so create `.env` with one first:
+
 ```bash
+cp .env.example .env
+echo "PURESTAT__JWT__SECRET=$(openssl rand -hex 32)" >> .env
 cargo run
 ```
 
@@ -137,6 +141,7 @@ The application will be available at `http://localhost:5173` (frontend) with the
 ### Full Docker deployment
 
 ```bash
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
 docker-compose -f docker-compose.full.yml up -d
 ```
 
