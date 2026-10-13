@@ -15,7 +15,7 @@ Purestat uses **JWT tokens** for authentication. Tokens are issued on login and 
 1. **httpOnly cookie** (name: `token`) -- Set automatically on login/register. Used by the SPA frontend.
 2. **Authorization header** -- `Authorization: Bearer <token>`. Used for programmatic API access.
 
-API keys (for stats endpoints only) use the `X-API-Key` header.
+An **API key** authenticates [`POST /api/v1/query`](#post-apiv1query) with the `X-API-Key` header. A key belongs to one site and reads only that site; it needs the `stats:read` scope. The dashboard endpoints take a JWT, not a key.
 
 ### Obtaining a Token
 
@@ -51,7 +51,7 @@ Requests are limited per client IP address and endpoint group, over a 60-second 
 |----------------|-------|---------------------|
 | Auth | `/api/auth/*`, `/api/oauth/*` | 10 |
 | Tracker (event ingest) | `/api/event` | 1000 |
-| Stats / Export | every path ending in `/stats` or `/export` | 120 |
+| Stats / Export | every path ending in `/stats` or `/export`, and `/api/v1/*` | 120 |
 | API | every other `/api/*` path | 300 |
 
 `/api/health` and `/api/stripe/webhook` are not limited. The limits are configurable: see [Deployment](deployment.md#rate-limiting).
@@ -157,6 +157,8 @@ Clear the authentication cookie.
 
 ### GET /api/oauth/{provider}
 
+> The OAuth sign-in is unfinished, so its two routes are not mounted (they answer `404`) unless the deployment sets `PURESTAT__OAUTH__ENABLED=true`.
+
 Redirect to OAuth provider login page. Supported providers: `google`, `github`, `facebook`, `linkedin`, `microsoft`.
 
 **Response:** `302 Redirect` to provider authorization URL.
@@ -204,29 +206,30 @@ Accept an invitation and join the organization. Requires authentication.
 
 ### POST /api/event
 
-Ingest a pageview or custom event from the JS tracker.
+Ingest a pageview, engagement or custom event from the JS tracker.
 
 **Request:**
 
 ```json
 {
   "domain": "example.com",
+  "name": "pageview",
   "url": "https://example.com/pricing",
   "referrer": "https://google.com",
-  "event_name": "pageview",
+  "screen_width": 1440,
   "props": {}
 }
 ```
 
-**Response (202):**
+**Response:** `202 Accepted`, with no body. An unknown `domain` is `400`.
 
-```json
-{
-  "ok": true
-}
-```
+An event is dropped, and still answered `202`, when:
 
-The visitor hash is computed server-side from the request IP, User-Agent, domain, and a daily-rotating salt. The raw IP address is never stored.
+- its User-Agent is a bot's (see [the tracker's list](tracker.md#what-is-never-counted));
+- its page (`url`) is on `localhost`, a `.local` name or a loopback, private, link-local or carrier-grade NAT address, or has no host;
+- its page's host is not one the site counts: the site's `domain`, `www.` + the domain, or one of its `allowed_hostnames`.
+
+The visitor hash is computed server-side from the client IP, User-Agent, domain, and a daily-rotating salt. The client IP is read exactly as the rate limiter reads it (the right-most `X-Forwarded-For` entry that is not a proxy hop), so what a client writes into the header does not change who it is. The raw IP address is never stored.
 
 ---
 
@@ -478,33 +481,32 @@ Revoke a pending invite.
 
 #### GET /api/org/{org_id}/site/{site_id}/api-key
 
-List API keys for a site (shows name, prefix, scopes, and last used -- never the full key).
+List API keys for a site (shows name, prefix, scopes and revocation -- never the full key).
 
 #### POST /api/org/{org_id}/site/{site_id}/api-key
 
-Create a new API key. The full key is returned only once.
+Create a new API key for the site (admin or owner). The full key is returned only once; purestat keeps only its SHA-256.
 
 **Request:**
 
 ```json
 {
-  "name": "CI Dashboard",
-  "scopes": ["stats:read", "realtime:read"]
+  "name": "Growth job",
+  "scopes": ["stats:read"]
 }
 ```
+
+`scopes` defaults to `["stats:read"]`, the scope `POST /api/v1/query` requires.
 
 **Response (201):**
 
 ```json
 {
-  "api_key": {
-    "id": "507f1f77bcf86cd799439066",
-    "name": "CI Dashboard",
-    "key": "ps_live_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
-    "key_prefix": "ps_live_",
-    "scopes": ["stats:read", "realtime:read"],
-    "created_at": "2026-02-25T10:00:00Z"
-  }
+  "id": "507f1f77bcf86cd799439066",
+  "name": "Growth job",
+  "key": "ps_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "key_prefix": "ps_XXXXXXXX",
+  "scopes": ["stats:read"]
 }
 ```
 
@@ -512,9 +514,11 @@ The `key` field is only returned at creation time. Store it securely.
 
 #### DELETE /api/org/{org_id}/site/{site_id}/api-key/{key_id}
 
-Revoke an API key.
+Revoke an API key. A revoked key is refused at once.
 
 ### Analytics
+
+Every analytics endpoint (stats, realtime, export and [`/api/v1/query`](#post-apiv1query)) reads a site through the same rule ingest applies: only events whose page host is the site's domain, `www.` + the domain, or one of its `allowed_hostnames` count, including events recorded before that rule existed. Visitor and pageview counts are over `pageview` events; engagement and custom events are not pageviews. The `entry_page` and `exit_page` breakdowns read visits.
 
 #### POST /api/org/{org_id}/site/{site_id}/stats
 
@@ -630,27 +634,132 @@ Get real-time visitor data (last 5 minutes).
 
 #### GET /api/org/{org_id}/site/{site_id}/export
 
-Export analytics data as CSV. Accepts the same query parameters as the stats endpoint (as URL query params).
+Export the site's events as CSV, oldest first: every event (pageviews, engagement reports and custom events) on the site's hostnames.
 
 **Query Parameters:**
 
-- `period` -- Period shortcut
-- `date_from` / `date_to` -- Custom date range
-- `metrics` -- Comma-separated metrics
-- `dimensions` -- Comma-separated dimensions
-- `filters[pathname]`, `filters[country]`, etc. -- Filters
+- `date_from` / `date_to` -- UTC days, `YYYY-MM-DD`, inclusive (required)
 
 **Response:**
 
 ```
 HTTP/1.1 200 OK
 Content-Type: text/csv
-Content-Disposition: attachment; filename="purestat-export-2026-02-25.csv"
+Content-Disposition: attachment; filename="purestat-export.csv"
 
-date,visitors,pageviews,bounce_rate,avg_duration
-2026-02-25,450,1230,42.5,185
-2026-02-24,423,1180,44.1,172
+time,event_name,path,referrer,referrer_source,country,browser,os,device_type,utm_source,utm_medium,utm_campaign
+2026-02-25 10:00:00,pageview,/pricing,https://www.google.com/search,Google,DE,Firefox,Linux,desktop,,,
 ```
+
+A field that holds a comma, a quote or a line break is quoted (RFC 4180).
+
+### Stats API (API key)
+
+#### POST /api/v1/query
+
+The stats of the site an API key belongs to: up to four dimensions, with visitor, visit, pageview and reading metrics and goal completions per row. Authenticate with the key in `X-API-Key`; the key's site is the site queried, so the body names none.
+
+**Request:**
+
+```
+POST /api/v1/query
+X-API-Key: ps_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+Content-Type: application/json
+```
+
+```json
+{
+  "date_from": "2026-10-01",
+  "date_to": "2026-10-13",
+  "dimensions": ["utm_source"],
+  "metrics": ["visitors", "pageviews"],
+  "goals": ["signup"],
+  "filters": [{ "dimension": "path", "operator": "starts_with", "value": "/blog/" }],
+  "limit": 100,
+  "offset": 0
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `date_from`, `date_to` | Yes | UTC days, `YYYY-MM-DD`, inclusive. `date_to` is not before `date_from`, and at most 366 days after it |
+| `dimensions` | No | 0 to 4 of the dimensions below. Without any, the answer is one row of totals |
+| `metrics` | Yes | 1 or more of the metrics below |
+| `goals` | No | 0 to 10 names of the site's goals |
+| `filters` | No | Conditions on any of the dimensions below. Operators: `is`, `is_not`, `contains`, `starts_with`; the value is compared literally and case-sensitively |
+| `limit` | No | 1 to 1000, default 100 |
+| `offset` | No | 0 or more, default 0 |
+
+A field the table does not list, an unknown name, or a name given twice is a `400`.
+
+**Dimensions:**
+
+| Dimension | Value |
+|-----------|-------|
+| `date` | The UTC day of the event; for `visits`, `bounce_rate` and `visit_duration`, the day the visit started |
+| `hostname` | The page's host |
+| `path` | The page's path |
+| `entry_page`, `exit_page` | The visit's first and last page |
+| `referrer_source` | Where the visit came from: `Direct`, a known source such as `Google`, or the referrer's host |
+| `referrer_host` | The host of the visit's referrer |
+| `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term` | The visit's campaign, from its landing page |
+| `country`, `device_type`, `browser`, `os` | The visitor's |
+| `event_name` | The name of the event a metric counts: `pageview` for `visitors`, `pageviews` and `reads`, a goal's event for that goal |
+
+A visit's referrer, campaign and entry and exit page are the visit's for every event in it, so a goal completed three pages after the landing counts for the landing's campaign. A visit still in progress (one with an event within the session timeout, 30 minutes by default) counts its events under their own referrer and campaign until it ends, so a past day's numbers are final once its last visits have ended.
+
+**Metrics:**
+
+| Metric | Value |
+|--------|-------|
+| `visitors` | Distinct visitors with a pageview |
+| `pageviews` | Pageview events |
+| `visits` | Visits |
+| `bounce_rate` | The share of visits with one pageview, from 0 to 1 |
+| `visit_duration` | The mean length of a visit, in seconds |
+| `reads` | Pageviews whose page was visible for 30 seconds or more |
+| `median_read_s` | The median visible seconds of the pageviews that reported any |
+
+`visits`, `bounce_rate` and `visit_duration` are `null` unless every dimension is one a visit has (`date`, `entry_page`, `exit_page`, `referrer_source`, `referrer_host`, the `utm_*` five, `country`, `device_type`, `browser`, `os`); `bounce_rate` and `visit_duration` are also `null` in a row without visits. `median_read_s` is `null` in a row without engaged pageviews. A pageview's visible time is its longest engagement report ([tracker](tracker.md#engagement)).
+
+**Goals:** per row, the distinct visitors who completed the goal: an event of the goal's name for a custom-event goal, a pageview of the goal's path for a pageview goal.
+
+Rows are sorted by the first metric, descending, then by the dimensions, ascending.
+
+**Response (200):**
+
+```json
+{
+  "rows": [
+    {
+      "dimensions": { "utm_source": "linkedin" },
+      "metrics": { "visitors": 52, "pageviews": 265 },
+      "goals": { "signup": 1 }
+    }
+  ],
+  "meta": {
+    "site_domain": "roomler.ai",
+    "hostnames": ["roomler.ai", "www.roomler.ai"],
+    "date_from": "2026-10-01",
+    "date_to": "2026-10-13",
+    "limit": 100,
+    "offset": 0,
+    "has_more": false
+  }
+}
+```
+
+`meta.hostnames` lists the hostnames counted for the site; `has_more` says whether another page of rows exists.
+
+**Errors:**
+
+| Status | Body | When |
+|--------|------|------|
+| 400 | `{"error": "<what is wrong>"}` | The body breaks a rule above |
+| 401 | `{"error": "unauthorized"}` | No key, an unknown or revoked key, or a key without `stats:read` |
+| 429 | `{"error": "rate_limited", ...}` | Past the Stats group's limit (see Rate Limiting) |
+
+Every value in the request reaches the database as a bound parameter, never as SQL.
 
 ### Stripe Billing
 

@@ -170,41 +170,37 @@ A developer creates an API key to fetch analytics data from their CI pipeline or
 
    ```
    POST /api/org/:orgId/site/:siteId/api-key
-   { "name": "CI Dashboard", "scopes": ["stats:read", "realtime:read"] }
+   { "name": "CI Dashboard", "scopes": ["stats:read"] }
    ```
 
    The response includes the full API key. **This is the only time the full key is shown.** Copy it and store it securely.
 
    ```json
    {
-     "api_key": {
-       "key": "ps_live_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
-       "scopes": ["stats:read", "realtime:read"]
-     }
+     "key": "ps_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+     "scopes": ["stats:read"]
    }
    ```
 
 3. **Use the key to query stats**
 
-   Include the key in the `X-API-Key` header:
+   Include the key in the `X-API-Key` header of [`POST /api/v1/query`](api.md#post-apiv1query). The key's site is the site queried:
 
    ```bash
-   curl -X POST https://purestat.ai/api/org/:orgId/site/:siteId/stats \
-     -H "X-API-Key: ps_live_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6" \
+   curl -X POST https://purestat.ai/api/v1/query \
+     -H "X-API-Key: ps_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" \
      -H "Content-Type: application/json" \
      -d '{
-       "period": "7d",
+       "date_from": "2026-10-01",
+       "date_to": "2026-10-07",
        "metrics": ["visitors", "pageviews"],
        "dimensions": ["date"]
      }'
    ```
 
-4. **Query real-time data**
+4. **What a key does not open**
 
-   ```bash
-   curl https://purestat.ai/api/org/:orgId/site/:siteId/realtime \
-     -H "X-API-Key: ps_live_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
-   ```
+   A key reads its site's stats through `/api/v1/query` and nothing else. Realtime, export and the dashboard's own endpoints need a signed-in user.
 
 5. **Manage keys**
 
@@ -301,14 +297,6 @@ A user exports their analytics data for external analysis or record-keeping.
    GET /api/org/:orgId/site/:siteId/export?period=30d&metrics=visitors,pageviews&dimensions=pathname&filters[country]=US
    ```
 
-5. **Programmatic export via API key**
+5. **Programmatic access**
 
-   Developers can automate exports using an API key with the `export:read` scope:
-
-   ```bash
-   curl "https://purestat.ai/api/org/:orgId/site/:siteId/export?period=7d&metrics=visitors,pageviews&dimensions=date" \
-     -H "X-API-Key: ps_live_..." \
-     -o analytics-export.csv
-   ```
-
-   This is useful for scheduled reports, data pipelines, or importing into spreadsheets and BI tools.
+   An API key does not open the export. For scheduled reports and data pipelines, use [`POST /api/v1/query`](api.md#post-apiv1query) with a `stats:read` key: it returns breakdowns by day, page, campaign and more as JSON.
