@@ -109,11 +109,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/realtime", get(routes::realtime::current_visitors_multi));
 
     // Compose API
-    let api = Router::new()
+    let mut api = Router::new()
         .route("/health", get(routes::health::health))
         .nest("/auth", auth_routes)
         .nest("/me", me_routes)
-        .nest("/oauth", oauth_routes)
         .nest("/org", org_routes)
         .nest("/org/{org_id}/site", site_routes)
         .nest("/org/{org_id}/site/{site_id}/goal", goal_routes)
@@ -128,6 +127,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/invite/{code}/accept", post(routes::invite::accept))
         // Event ingest (public, validated by domain)
         .route("/event", post(routes::event::ingest));
+
+    // The OAuth sign-in is unfinished: its routes exist only when a
+    // deployment turns them on (PURESTAT__OAUTH__ENABLED=true).
+    if state.settings.oauth.enabled {
+        api = api.nest("/oauth", oauth_routes);
+    }
 
     Router::new()
         .nest("/api", api)

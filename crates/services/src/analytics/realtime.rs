@@ -2,6 +2,9 @@ use clickhouse::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use super::scope::{SiteScope, events_scope};
+use super::sql::Sql;
+
 #[derive(Debug, Error)]
 pub enum RealtimeError {
     #[error("ClickHouse error: {0}")]
@@ -36,8 +39,17 @@ pub struct MultiSiteRealtimeStats {
     pub top_pages: Vec<RealtimePage>,
 }
 
+/// The visitors of the last five minutes: those with a pageview on one of
+/// the site's hostnames in that time.
 pub struct RealtimeService {
     client: Client,
+}
+
+/// The pageviews of the last five minutes on these sites' hostnames.
+fn recent_pageviews(scopes: &[SiteScope]) -> Sql {
+    let mut sql = events_scope(scopes);
+    sql.push(" AND event_name = 'pageview' AND timestamp >= now() - INTERVAL 5 MINUTE");
+    sql
 }
 
 impl RealtimeService {
@@ -47,97 +59,52 @@ impl RealtimeService {
 
     pub async fn get_current_visitors(
         &self,
-        site_id: u64,
+        scope: &SiteScope,
     ) -> Result<RealtimeStats, RealtimeError> {
-        // Visitors in last 5 minutes
-        let count_sql = format!(
-            "SELECT uniq(visitor_hash) as visitors FROM events \
-             WHERE site_id = {site_id} AND timestamp >= now() - INTERVAL 5 MINUTE"
-        );
-
-        let row = self
-            .client
-            .query(&count_sql)
+        let scopes = std::slice::from_ref(scope);
+        let mut count_sql = Sql::new("SELECT uniq(visitor_hash) AS visitors FROM events WHERE ");
+        count_sql.append(&recent_pageviews(scopes));
+        let row = count_sql
+            .query(&self.client)
             .fetch_one::<VisitorCount>()
             .await?;
 
-        // Top pages in last 5 minutes
-        let pages_sql = format!(
-            "SELECT path, uniq(visitor_hash) as visitors FROM events \
-             WHERE site_id = {site_id} AND timestamp >= now() - INTERVAL 5 MINUTE \
-             GROUP BY path ORDER BY visitors DESC LIMIT 10"
-        );
-
-        let pages = self
-            .client
-            .query(&pages_sql)
-            .fetch_all::<PageRow>()
-            .await?;
-
+        let pages = self.top_pages(scopes).await?;
         Ok(RealtimeStats {
             current_visitors: row.visitors,
-            top_pages: pages
-                .into_iter()
-                .map(|p| RealtimePage {
-                    path: p.path,
-                    visitors: p.visitors,
-                })
-                .collect(),
+            top_pages: pages,
         })
     }
+
     pub async fn get_current_visitors_multi(
         &self,
-        site_ids: &[u64],
+        scopes: &[SiteScope],
     ) -> Result<MultiSiteRealtimeStats, RealtimeError> {
-        let site_id_list = site_ids
-            .iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        // Count unique visitors across all sites in last 5 min
-        let count_sql = format!(
-            "SELECT uniq(visitor_hash) as visitors FROM events \
-             WHERE site_id IN ({site_id_list}) AND timestamp >= now() - INTERVAL 5 MINUTE"
-        );
-        let row = self
-            .client
-            .query(&count_sql)
+        let mut count_sql = Sql::new("SELECT uniq(visitor_hash) AS visitors FROM events WHERE ");
+        count_sql.append(&recent_pageviews(scopes));
+        let row = count_sql
+            .query(&self.client)
             .fetch_one::<VisitorCount>()
             .await?;
 
-        // Per-visitor details: latest page for each visitor using argMax
-        let visitors_sql = format!(
+        // Per-visitor details: the latest page of each visitor.
+        let mut visitors_sql = Sql::new(
             "SELECT \
                 visitor_hash, \
-                argMax(country, timestamp) as last_country, \
-                argMax(site_id, timestamp) as last_site_id, \
-                argMax(hostname, timestamp) as last_hostname, \
-                argMax(path, timestamp) as last_path \
-             FROM events \
-             WHERE site_id IN ({site_id_list}) AND timestamp >= now() - INTERVAL 5 MINUTE \
-             GROUP BY visitor_hash \
-             ORDER BY max(timestamp) DESC \
-             LIMIT 100"
+                argMax(country, timestamp) AS last_country, \
+                argMax(site_id, timestamp) AS last_site_id, \
+                argMax(hostname, timestamp) AS last_hostname, \
+                argMax(path, timestamp) AS last_path \
+             FROM events WHERE ",
         );
-        let visitor_rows = self
-            .client
-            .query(&visitors_sql)
+        visitors_sql.append(&recent_pageviews(scopes));
+        visitors_sql.push(" GROUP BY visitor_hash ORDER BY max(timestamp) DESC LIMIT 100");
+        let visitor_rows = visitors_sql
+            .query(&self.client)
             .fetch_all::<VisitorDetailRow>()
             .await?;
 
-        // Top pages across all sites
-        let pages_sql = format!(
-            "SELECT path, uniq(visitor_hash) as visitors FROM events \
-             WHERE site_id IN ({site_id_list}) AND timestamp >= now() - INTERVAL 5 MINUTE \
-             GROUP BY path ORDER BY visitors DESC LIMIT 10"
-        );
-        let pages = self
-            .client
-            .query(&pages_sql)
-            .fetch_all::<PageRow>()
-            .await?;
-
+        let pages = self.top_pages(scopes).await?;
         Ok(MultiSiteRealtimeStats {
             current_visitors: row.visitors,
             visitors: visitor_rows
@@ -150,14 +117,22 @@ impl RealtimeService {
                     path: v.last_path,
                 })
                 .collect(),
-            top_pages: pages
-                .into_iter()
-                .map(|p| RealtimePage {
-                    path: p.path,
-                    visitors: p.visitors,
-                })
-                .collect(),
+            top_pages: pages,
         })
+    }
+
+    async fn top_pages(&self, scopes: &[SiteScope]) -> Result<Vec<RealtimePage>, RealtimeError> {
+        let mut sql = Sql::new("SELECT path, uniq(visitor_hash) AS visitors FROM events WHERE ");
+        sql.append(&recent_pageviews(scopes));
+        sql.push(" GROUP BY path ORDER BY visitors DESC, path ASC LIMIT 10");
+        let pages = sql.query(&self.client).fetch_all::<PageRow>().await?;
+        Ok(pages
+            .into_iter()
+            .map(|p| RealtimePage {
+                path: p.path,
+                visitors: p.visitors,
+            })
+            .collect())
     }
 }
 

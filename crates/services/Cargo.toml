@@ -33,3 +33,4 @@ anyhow.workspace = true
 futures.workspace = true
 maxminddb.workspace = true
 time = "0.3"
+url = "2"

@@ -36,13 +36,16 @@ pub async fn ensure_indexes(db: &Database) -> Result<(), mongodb::error::Error> 
     )
     .await?;
 
-    // Sites
+    // Sites. `ch_id` is unique among the sites that carry one; the index is
+    // sparse, so sites from before it was assigned, which have none, are not
+    // in it.
     create_indexes(
         db,
         "sites",
         vec![
             index_unique(bson::doc! { "org_id": 1, "domain": 1 }),
             index(bson::doc! { "domain": 1 }),
+            index_unique_sparse(bson::doc! { "ch_id": 1 }),
         ],
     )
     .await?;
@@ -95,6 +98,15 @@ fn index_unique(keys: bson::Document) -> IndexModel {
     IndexModel::builder()
         .keys(keys)
         .options(IndexOptions::builder().unique(true).build())
+        .build()
+}
+
+/// Unique among the documents that carry the field; documents without it
+/// are not indexed, so any number of them may exist.
+fn index_unique_sparse(keys: bson::Document) -> IndexModel {
+    IndexModel::builder()
+        .keys(keys)
+        .options(IndexOptions::builder().unique(true).sparse(true).build())
         .build()
 }
 

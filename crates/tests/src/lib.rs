@@ -1,4 +1,8 @@
 pub mod helpers;
+pub mod seed;
+
+#[cfg(test)]
+mod trust_test;
 
 #[cfg(test)]
 mod auth_test;

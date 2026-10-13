@@ -20,3 +20,5 @@ chrono.workspace = true
 anyhow.workspace = true
 uuid.workspace = true
 tracing.workspace = true
+clickhouse.workspace = true
+time = "0.3"

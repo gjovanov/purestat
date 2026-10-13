@@ -1,12 +1,40 @@
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode};
+use axum::Extension;
 use purestat_db::clickhouse::schemas::Event;
+use purestat_services::analytics::scope::{is_local_or_private, normalize_hostname, SiteScope};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 
 use crate::error::ApiError;
+use crate::rate_limit::client_ip;
 use crate::state::AppState;
+
+/// User-Agent fragments of crawlers, monitors, headless browsers and HTTP
+/// libraries, matched case-insensitively. An event whose User-Agent holds
+/// one is dropped at ingest.
+pub const BOT_USER_AGENT_MARKERS: &[&str] = &[
+    "bot",
+    "crawler",
+    "spider",
+    "headless",
+    "headlesschrome",
+    "lighthouse",
+    "phantomjs",
+    "curl/",
+    "wget/",
+    "python-requests",
+    "go-http-client",
+    "node-fetch",
+    "axios/",
+];
+
+pub fn is_bot(user_agent: &str) -> bool {
+    let ua = user_agent.to_ascii_lowercase();
+    BOT_USER_AGENT_MARKERS.iter().any(|marker| ua.contains(marker))
+}
 
 #[derive(Deserialize)]
 pub struct EventRequest {
@@ -18,13 +46,37 @@ pub struct EventRequest {
     pub props: Option<HashMap<String, String>>,
 }
 
+/// Ingest. An event that is not a visitor's is dropped and still answered
+/// 202, so a sender learns nothing from the answer: a bot's (`is_bot`), one
+/// from a local or private host, and one whose page is on a host the site
+/// does not count (its domain, `www.` + the domain, `allowed_hostnames`).
 pub async fn ingest(
     State(state): State<AppState>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     raw_body: Bytes,
 ) -> Result<StatusCode, ApiError> {
     let body: EventRequest = serde_json::from_slice(&raw_body)
         .map_err(|e| ApiError::BadRequest(format!("Invalid event body: {e}")))?;
+
+    let user_agent = headers
+        .get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    if is_bot(&user_agent) {
+        tracing::debug!(reason = "bot", "Event dropped");
+        return Ok(StatusCode::ACCEPTED);
+    }
+
+    // Parse the page address once: what is stored, its path and host, and the
+    // campaign parameters.
+    let page = parse_page_url(&body.url);
+    if is_local_or_private(&page.hostname) {
+        tracing::debug!(reason = "local host", "Event dropped");
+        return Ok(StatusCode::ACCEPTED);
+    }
+
     // Resolve site by domain
     let site = state
         .sites
@@ -33,39 +85,19 @@ pub async fn ingest(
         .map_err(|e| ApiError::Internal(e.to_string()))?
         .ok_or_else(|| ApiError::BadRequest(format!("Unknown domain: {}", body.domain)))?;
 
-    let site_id = site
-        .id
-        .map(|id| {
-            // Convert ObjectId to u64 by taking first 8 bytes
-            let bytes = id.bytes();
-            u64::from_be_bytes([
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-            ])
-        })
-        .unwrap_or(0);
+    let scope = SiteScope::for_site(&site);
+    if !scope.counts(&page.hostname) {
+        tracing::debug!(reason = "hostname", "Event dropped");
+        return Ok(StatusCode::ACCEPTED);
+    }
+    let site_id = scope.ch_id;
 
-    // Extract IP and User-Agent for privacy hashing
-    // Priority: X-Forwarded-For (first entry) > X-Real-IP > fallback
-    let ip = headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            headers
-                .get("x-real-ip")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.trim())
-        })
-        .unwrap_or("0.0.0.0")
-        .to_string();
-
-    let user_agent = headers
-        .get("user-agent")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
+    // The client's address as the rate limiter reads it: the right-most
+    // address that is not a proxy hop, so a client cannot choose its own.
+    let peer = connect_info.map(|Extension(ConnectInfo(addr))| addr.ip());
+    let ip = client_ip(&headers, peer)
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|| "0.0.0.0".to_string());
 
     // Generate privacy-preserving visitor hash
     let visitor_hash = state
@@ -73,10 +105,6 @@ pub async fn ingest(
         .generate_visitor_hash(&body.domain, &ip, &user_agent)
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
-
-    // Parse the page address once: what is stored, its path and host, and the
-    // campaign parameters.
-    let page = parse_page_url(&body.url);
 
     // The referrer is kept as far as its path; its source is read from the host.
     let referrer = clean_referrer(body.referrer.as_deref().unwrap_or(""));
@@ -135,7 +163,8 @@ pub async fn ingest(
         event_name,
         url: page.url,
         path: page.path,
-        hostname: page.hostname,
+        // As the reads compare it: the spelling the allowlist matched.
+        hostname: normalize_hostname(&page.hostname),
         referrer,
         referrer_source,
         utm_source: page.utm_source,
@@ -383,5 +412,34 @@ mod tests {
         );
         assert_eq!(clean_referrer(""), "");
         assert_eq!(parse_referrer_source(&clean_referrer("")), "Direct");
+    }
+
+    #[test]
+    fn crawlers_and_http_libraries_are_bots_and_browsers_are_not() {
+        for ua in [
+            "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+            "Mozilla/5.0 (compatible; bingbot/2.0)",
+            "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php) Crawler",
+            "Mozilla/5.0 (compatible; YandexSpider/3.0)",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 Chrome-Lighthouse",
+            "Mozilla/5.0 (Unknown; Linux x86_64) AppleWebKit/538.1 (KHTML, like Gecko) PhantomJS/2.1.1 Safari/538.1",
+            "curl/8.5.0",
+            "Wget/1.21.4",
+            "python-requests/2.31.0",
+            "Go-http-client/2.0",
+            "node-fetch/1.0 (+https://github.com/bitinn/node-fetch)",
+            "axios/1.6.7",
+        ] {
+            assert!(is_bot(ua), "{ua}");
+        }
+        for ua in [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+            "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0",
+            "",
+        ] {
+            assert!(!is_bot(ua), "{ua}");
+        }
     }
 }

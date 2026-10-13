@@ -1,8 +1,27 @@
+import { ignoreFlagSet, pageviewId, shouldSkip, visibleClock } from './rules';
+
 (function () {
   'use strict';
   var d = document,
     w = window,
     l = w.location;
+  var storage = function () {
+    return w.localStorage;
+  };
+
+  if (
+    shouldSkip({
+      hostname: l.hostname,
+      protocol: l.protocol,
+      webdriver: !!navigator.webdriver,
+      ignored: ignoreFlagSet(storage),
+    })
+  ) {
+    // Nothing is sent from here, and a page's own calls still work.
+    (w as any).purestat = function () {};
+    return;
+  }
+
   var script = d.currentScript as HTMLScriptElement;
   var apiUrl =
     script.getAttribute('data-api') ||
@@ -18,11 +37,12 @@
     props?: Record<string, string>;
   }
 
-  function send(name: string, props?: Record<string, string>) {
+  function send(name: string, props?: Record<string, string>, url?: string) {
+    if (ignoreFlagSet(storage)) return;
     var payload: Payload = {
       domain: domain,
       name: name,
-      url: l.href,
+      url: url || l.href,
       referrer: d.referrer || '',
       screen_width: w.innerWidth,
     };
@@ -39,27 +59,38 @@
     }
   }
 
-  // Track pageviews (SPA-aware)
-  var lastPage: string | undefined;
-  var pageEntryTime: number = 0;
+  function isVisible() {
+    return d.visibilityState !== 'hidden';
+  }
 
+  // The page being measured: its path, its address, its pageview id, and
+  // the visible seconds already reported for it.
+  var lastPage: string | undefined;
+  var pageUrl = '';
+  var pv = '';
+  var reported = 0;
+  var clock = visibleClock(Date.now, isVisible());
+
+  // Reports the page's visible time so far, at the page's own address. A
+  // pageview's engaged time is its longest report; nothing is sent until the
+  // time has grown.
   function sendEngagement() {
-    if (pageEntryTime > 0) {
-      var duration = Math.round((Date.now() - pageEntryTime) / 1000);
-      if (duration > 0) {
-        send('engagement', { duration: duration.toString() });
-      }
+    var seconds = clock.seconds();
+    if (pv && seconds > reported) {
+      reported = seconds;
+      send('engagement', { duration: String(seconds), pv: pv }, pageUrl);
     }
   }
 
+  // Track pageviews (SPA-aware)
   function trackPageview() {
     if (lastPage === l.pathname) return;
-    // Send engagement for the previous page before tracking the new one
-    if (lastPage !== undefined) {
-      sendEngagement();
-    }
+    if (lastPage !== undefined) sendEngagement();
     lastPage = l.pathname;
-    pageEntryTime = Date.now();
+    pageUrl = l.href;
+    pv = pageviewId(Math.random);
+    reported = 0;
+    clock.reset(isVisible());
     send('pageview');
   }
 
@@ -71,24 +102,20 @@
   };
   w.addEventListener('popstate', trackPageview);
 
-  // Leave detection
-  var engagementSent = false;
-
-  function onLeave() {
-    if (engagementSent) return;
-    engagementSent = true;
-    sendEngagement();
-  }
-
+  // Hidden time is not engaged time: the clock stops while the page is
+  // hidden, and the time so far is reported when it hides or goes away.
   d.addEventListener('visibilitychange', function () {
-    if (d.visibilityState === 'hidden') {
-      onLeave();
+    if (isVisible()) {
+      clock.show();
     } else {
-      engagementSent = false;
+      clock.hide();
+      sendEngagement();
     }
   });
-
-  w.addEventListener('beforeunload', onLeave);
+  w.addEventListener('pagehide', function () {
+    clock.hide();
+    sendEngagement();
+  });
 
   // Initial pageview
   trackPageview();
