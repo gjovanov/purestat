@@ -1,7 +1,9 @@
 # Stage 1: cargo-chef for dependency caching
-FROM rust:1.88-slim AS chef
-# Pin cargo-chef to a version compatible with rust 1.88
-# (0.1.77+ pulls cargo-platform requiring rustc 1.91)
+# The toolchain the test suite runs on. `-bookworm` explicitly: the runtime
+# stage is debian:bookworm-slim, and a builder on a newer Debian would link
+# against a glibc the runtime does not have (a failure only at start-up).
+FROM rust:1.95-slim-bookworm AS chef
+# cargo-chef stays pinned (and --locked) so the image does not move under us.
 RUN cargo install cargo-chef --version 0.1.71 --locked
 WORKDIR /app
 
@@ -21,7 +23,8 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY . .
-RUN cargo build --release --bin purestat-api --bin purestat-tracker
+# --locked: the committed Cargo.lock is the resolution the tag was tested with.
+RUN cargo build --release --locked --bin purestat-api --bin purestat-tracker
 
 # Stage 4: minimal runtime
 FROM debian:bookworm-slim AS runtime

@@ -1,7 +1,9 @@
 # Rust
 /target
 **/*.rs.bk
-Cargo.lock
+# Cargo.lock is committed: purestat ships binaries, and an image built from a
+# tag must resolve the dependencies the tag was tested with (v0.1.7's could not
+# build: a fresh resolution pulled a crate needing a newer rustc).
 
 # Environment
 .env
