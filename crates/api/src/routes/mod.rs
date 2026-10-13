@@ -12,3 +12,4 @@ pub mod realtime;
 pub mod site;
 pub mod stats;
 pub mod stripe;
+pub mod v1;

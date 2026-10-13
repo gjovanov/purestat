@@ -67,7 +67,7 @@ pub fn classify(path: &str, limits: &RateLimitSettings) -> Option<(&'static str,
     if path == "/api/event" {
         return Some(("tracker", limits.tracker_rpm));
     }
-    if path.ends_with("/stats") || path.ends_with("/export") {
+    if path.ends_with("/stats") || path.ends_with("/export") || path.starts_with("/api/v1/") {
         return Some(("stats", limits.stats_rpm));
     }
     Some(("api", limits.api_rpm))
@@ -271,6 +271,7 @@ mod tests {
             ("/api/org/a/site/b/stats", Some("stats")),
             ("/api/org/a/site/b/export", Some("stats")),
             ("/api/org/a/analytics/stats", Some("stats")),
+            ("/api/v1/query", Some("stats")),
             ("/api/org/a/analytics/realtime", Some("api")),
             ("/api/me", Some("api")),
             ("/api/health", None),

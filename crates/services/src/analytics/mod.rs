@@ -6,3 +6,4 @@ pub mod realtime;
 pub mod scope;
 pub mod session;
 pub mod sql;
+pub mod v1;

@@ -126,7 +126,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/invite/{code}", get(routes::invite::info))
         .route("/invite/{code}/accept", post(routes::invite::accept))
         // Event ingest (public, validated by domain)
-        .route("/event", post(routes::event::ingest));
+        .route("/event", post(routes::event::ingest))
+        // Stats by API key (X-API-Key), for the key's site
+        .route("/v1/query", post(routes::v1::query));
 
     // The OAuth sign-in is unfinished: its routes exist only when a
     // deployment turns them on (PURESTAT__OAUTH__ENABLED=true).

@@ -72,6 +72,10 @@ impl QueryService {
         Self { client }
     }
 
+    pub(crate) fn client(&self) -> &Client {
+        &self.client
+    }
+
     pub async fn query_stats(
         &self,
         scope: &SiteScope,
