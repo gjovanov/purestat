@@ -8,6 +8,10 @@ pub struct SiteDao {
     pub base: BaseDao<Site>,
 }
 
+/// How many ids a creation draws before it gives up; a second draw is
+/// already only for a race between two creations.
+const CH_ID_ATTEMPTS: usize = 8;
+
 impl SiteDao {
     pub fn new(db: &Database) -> Self {
         Self {
@@ -15,6 +19,7 @@ impl SiteDao {
         }
     }
 
+    /// Creates the site with a ClickHouse id of its own (`Site::ch_id`).
     pub async fn create(
         &self,
         org_id: ObjectId,
@@ -23,7 +28,7 @@ impl SiteDao {
         timezone: Option<String>,
     ) -> DaoResult<Site> {
         let now = DateTime::now();
-        let site = Site {
+        let mut site = Site {
             id: None,
             org_id,
             domain,
@@ -31,14 +36,61 @@ impl SiteDao {
             timezone: timezone.unwrap_or_else(|| "UTC".to_string()),
             is_public: false,
             allowed_hostnames: vec![],
+            ch_id: None,
             created_at: now,
             updated_at: now,
         };
-        let id = self.base.insert_one(&site).await?;
-        self.base
-            .find_one(doc! { "_id": id })
-            .await?
-            .ok_or(DaoError::NotFound)
+        // The unique index on `ch_id` is the last word: when another creation
+        // took the id first, this one draws again.
+        for _ in 0..CH_ID_ATTEMPTS {
+            site.ch_id = Some(self.unused_ch_id().await?);
+            match self.base.insert_one(&site).await {
+                Ok(id) => {
+                    return self
+                        .base
+                        .find_one(doc! { "_id": id })
+                        .await?
+                        .ok_or(DaoError::NotFound);
+                }
+                Err(DaoError::DuplicateKey(msg)) if msg.contains("ch_id") => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(DaoError::Validation(
+            "Could not assign the site an analytics id".to_string(),
+        ))
+    }
+
+    /// A random ClickHouse id that no site has: neither as its `ch_id`, nor
+    /// as the id derived from the ObjectId of a site without one. Positive
+    /// and within i64, because BSON stores it as an Int64.
+    async fn unused_ch_id(&self) -> DaoResult<u64> {
+        loop {
+            let candidate = rand::random::<u64>() & (i64::MAX as u64);
+            if candidate == 0 {
+                continue;
+            }
+            let prefix = candidate.to_be_bytes();
+            let mut low = [0u8; 12];
+            let mut high = [0xffu8; 12];
+            low[..8].copy_from_slice(&prefix);
+            high[..8].copy_from_slice(&prefix);
+            let taken = self
+                .base
+                .count(doc! {
+                    "$or": [
+                        { "ch_id": candidate as i64 },
+                        {
+                            "ch_id": { "$exists": false },
+                            "_id": { "$gte": ObjectId::from_bytes(low), "$lte": ObjectId::from_bytes(high) },
+                        },
+                    ]
+                })
+                .await?;
+            if taken == 0 {
+                return Ok(candidate);
+            }
+        }
     }
 
     pub async fn find_by_org(&self, org_id: ObjectId) -> DaoResult<Vec<Site>> {

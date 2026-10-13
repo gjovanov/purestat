@@ -180,6 +180,7 @@ The visitor-hash salt needs no setting: the API generates a random one per day a
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `PURESTAT__OAUTH__ENABLED` | `false` | Mounts `/api/oauth/*`. The OAuth sign-in is unfinished, so it stays off unless set to `true` |
 | `PURESTAT__OAUTH__GOOGLE_CLIENT_ID` | (empty) | Google OAuth client ID |
 | `PURESTAT__OAUTH__GOOGLE_CLIENT_SECRET` | (empty) | Google OAuth client secret |
 | `PURESTAT__OAUTH__GITHUB_CLIENT_ID` | (empty) | GitHub OAuth client ID |

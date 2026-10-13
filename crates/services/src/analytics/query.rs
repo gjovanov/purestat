@@ -2,6 +2,9 @@ use clickhouse::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use super::scope::SiteScope;
+use super::sql::{DateRange, Dimension, Filter, Operator, Sql, events_where, sessions_where};
+
 #[derive(Debug, Error)]
 pub enum QueryError {
     #[error("ClickHouse error: {0}")]
@@ -57,6 +60,9 @@ pub fn parse_date(s: &str) -> Result<chrono::NaiveDate, QueryError> {
         .map_err(|_| QueryError::InvalidQuery(format!("Invalid date: {s}")))
 }
 
+/// The dashboard's queries. Every one reads a site through its scope (its
+/// ClickHouse id and the hostnames that count for it), and every visitor and
+/// pageview count is over `pageview` events.
 pub struct QueryService {
     client: Client,
 }
@@ -68,54 +74,51 @@ impl QueryService {
 
     pub async fn query_stats(
         &self,
-        site_id: u64,
+        scope: &SiteScope,
         query: &StatsQuery,
     ) -> Result<StatsResult, QueryError> {
-        self.query_stats_sites(&[site_id], query).await
+        self.query_stats_sites(std::slice::from_ref(scope), query)
+            .await
     }
 
     /// The same query across several sites of one org. The route resolves
-    /// every id within the caller's org before it gets here.
+    /// every site within the caller's org before it gets here.
     pub async fn query_stats_multi(
         &self,
-        site_ids: &[u64],
+        scopes: &[SiteScope],
         query: &StatsQuery,
     ) -> Result<StatsResult, QueryError> {
-        if site_ids.is_empty() {
+        if scopes.is_empty() {
             return Err(QueryError::InvalidQuery("No site IDs provided".to_string()));
         }
-        self.query_stats_sites(site_ids, query).await
+        self.query_stats_sites(scopes, query).await
     }
 
     async fn query_stats_sites(
         &self,
-        site_ids: &[u64],
+        scopes: &[SiteScope],
         query: &StatsQuery,
     ) -> Result<StatsResult, QueryError> {
-        let (where_clause, binds) = Self::build_where(site_ids, query)?;
+        let dates = Self::resolve_date_range(query)?;
+        let filters = Self::parse_filters(query)?;
 
         if let Some(dimensions) = &query.dimensions {
-            // Dimension breakdown — always include visitors and pageviews
-            let dimension = dimensions.first().ok_or_else(|| {
+            // Dimension breakdown: visitors and pageviews per value.
+            let name = dimensions.first().ok_or_else(|| {
                 QueryError::InvalidQuery("dimensions must name at least one dimension".to_string())
             })?;
-            let dim_col = Self::dimension_to_column(dimension)?;
+            let dimension = Dimension::parse(name)
+                .ok_or_else(|| QueryError::InvalidQuery(format!("Unknown dimension: {name}")))?;
             let limit = query.limit.unwrap_or(10);
             let offset = query.offset.unwrap_or(0);
 
-            let sql = format!(
-                "SELECT {dim_col} as dimension, uniq(visitor_hash) as visitors, count() as pageviews FROM events WHERE {where_clause} GROUP BY dimension ORDER BY visitors DESC LIMIT {limit} OFFSET {offset}"
-            );
-
-            let rows = self
-                .bound(&sql, &binds)
-                .fetch_all::<DimensionRow>()
-                .await?;
+            let sql = Self::breakdown_sql(scopes, &dates, &filters, dimension, limit, offset);
+            let rows = sql.query(&self.client).fetch_all::<DimensionRow>().await?;
 
             let dimension_results: Vec<DimensionResult> = rows
                 .into_iter()
                 .map(|r| DimensionResult {
-                    dimension: dimension.clone(),
+                    dimension: name.clone(),
                     value: r.dimension,
                     metrics: serde_json::json!({
                         "visitors": r.visitors,
@@ -141,14 +144,13 @@ impl QueryService {
                 _ => "toString(toDate(timestamp))",
             };
 
-            let sql = format!(
-                "SELECT {date_trunc} as period, uniq(visitor_hash) as visitors, count() as pageviews FROM events WHERE {where_clause} GROUP BY period ORDER BY period"
-            );
+            let mut sql = Sql::new(format!(
+                "SELECT {date_trunc} AS period, uniq(visitor_hash) AS visitors, count() AS pageviews FROM events WHERE "
+            ));
+            sql.append(&events_where(scopes, &dates, &filters, true));
+            sql.push(" GROUP BY period ORDER BY period");
 
-            let rows = self
-                .bound(&sql, &binds)
-                .fetch_all::<TimeseriesRow>()
-                .await?;
+            let rows = sql.query(&self.client).fetch_all::<TimeseriesRow>().await?;
 
             let timeseries: Vec<TimeseriesPoint> = rows
                 .into_iter()
@@ -167,28 +169,26 @@ impl QueryService {
                 timeseries: Some(timeseries),
             })
         } else {
-            // Aggregate metrics only — always query the standard set from events table
-            let sql = format!(
-                "SELECT uniq(visitor_hash) as visitors, count() as pageviews FROM events WHERE {where_clause}"
+            // Aggregate metrics: visitors and pageviews from events, bounce
+            // rate and visit duration from sessions.
+            let mut sql = Sql::new(
+                "SELECT uniq(visitor_hash) AS visitors, count() AS pageviews FROM events WHERE ",
             );
-
-            let row = self
-                .bound(&sql, &binds)
+            sql.append(&events_where(scopes, &dates, &filters, true));
+            let row = sql
+                .query(&self.client)
                 .fetch_one::<BaseAggregateRow>()
                 .await?;
 
-            // Bounce rate and visit duration require the sessions table
-            let session_sql = format!(
-                "SELECT ifNotFinite(round(countIf(is_bounce = 1) / count() * 100, 1), 0) as bounce_rate, ifNotFinite(round(avg(duration), 0), 0) as visit_duration FROM sessions WHERE {where_clause}"
+            let mut session_sql = Sql::new(
+                "SELECT ifNotFinite(round(countIf(is_bounce = 1) / count() * 100, 1), 0) AS bounce_rate, \
+                 ifNotFinite(round(avg(duration), 0), 0) AS visit_duration FROM sessions WHERE ",
             );
-            let session_row = self
-                .bound(&session_sql, &binds)
+            session_sql.append(&sessions_where(scopes, &dates, &filters));
+            let session_row = session_sql
+                .query(&self.client)
                 .fetch_one::<SessionAggregateRow>()
-                .await
-                .unwrap_or(SessionAggregateRow {
-                    bounce_rate: 0.0,
-                    visit_duration: 0.0,
-                });
+                .await?;
 
             Ok(StatsResult {
                 metrics: serde_json::json!({
@@ -203,61 +203,65 @@ impl QueryService {
         }
     }
 
-    /// The WHERE clause, and the values its `?` placeholders take, in order.
-    ///
-    /// Every caller-supplied VALUE is bound, never spliced into the SQL: the
-    /// columns come from the `dimension_to_column` allowlist, the dates are
-    /// parsed strictly, and filter values travel as bind parameters, so nothing
-    /// a request sends can change the query (GHSA-7f5h-5qwr-rxh5).
-    fn build_where(site_ids: &[u64], query: &StatsQuery) -> Result<(String, Vec<String>), QueryError> {
-        let (date_from, date_to) = Self::resolve_date_range(query)?;
-        // Site ids are u64s the route derived from ObjectIds it resolved within
-        // the caller's org, never caller text, so they are safe as literals.
-        let site_predicate = match site_ids {
-            [one] => format!("site_id = {one}"),
-            many => format!(
-                "site_id IN ({})",
-                many.iter().map(u64::to_string).collect::<Vec<_>>().join(", ")
-            ),
-        };
-        let mut conditions = vec![
-            site_predicate,
-            "date >= ?".to_string(),
-            "date <= ?".to_string(),
-        ];
-        let mut binds = vec![date_from, date_to];
-
-        if let Some(filters) = &query.filters {
-            for f in filters {
-                let col = Self::dimension_to_column(&f.dimension)?;
-                let condition = match f.operator.as_str() {
-                    "is" => format!("{col} = ?"),
-                    "is_not" => format!("{col} != ?"),
-                    // position(), not LIKE: a value's `%` and `_` stay literal.
-                    "contains" => format!("position({col}, ?) > 0"),
-                    _ => {
-                        return Err(QueryError::InvalidQuery(format!(
-                            "Unknown operator: {}",
-                            f.operator
-                        )))
-                    }
-                };
-                conditions.push(condition);
-                binds.push(f.value.clone());
-            }
+    /// Visitors and pageviews per value of one dimension. A page or a visit
+    /// attribute that every event carries is read from `events`; the entry
+    /// and exit page only a visit has are read from `sessions`, where a
+    /// value's pageviews are those of the visits that entered or left there.
+    fn breakdown_sql(
+        scopes: &[SiteScope],
+        dates: &DateRange,
+        filters: &[Filter],
+        dimension: Dimension,
+        limit: u64,
+        offset: u64,
+    ) -> Sql {
+        let mut sql;
+        if let Some(expr) = dimension.events_expr() {
+            sql = Sql::new(format!(
+                "SELECT {expr} AS dimension, uniq(visitor_hash) AS visitors, count() AS pageviews FROM events WHERE "
+            ));
+            sql.append(&events_where(scopes, dates, filters, true));
+        } else {
+            let expr = dimension
+                .sessions_expr()
+                .expect("a dimension lives on at least one table");
+            sql = Sql::new(format!(
+                "SELECT {expr} AS dimension, uniq(visitor_hash) AS visitors, sum(pageviews) AS pageview_total FROM sessions WHERE "
+            ));
+            sql.append(&sessions_where(scopes, dates, filters));
         }
-
-        Ok((conditions.join(" AND "), binds))
+        sql.push(&format!(
+            " GROUP BY dimension ORDER BY visitors DESC, dimension ASC LIMIT {limit} OFFSET {offset}"
+        ));
+        sql
     }
 
-    /// A query with the WHERE clause's values bound, in order.
-    fn bound(&self, sql: &str, binds: &[String]) -> clickhouse::query::Query {
-        binds.iter().fold(self.client.query(sql), |q, b| q.bind(b.as_str()))
+    /// The filters, each on a known dimension with a known operator. Values
+    /// stay values: they are bound, never spliced (GHSA-7f5h-5qwr-rxh5).
+    fn parse_filters(query: &StatsQuery) -> Result<Vec<Filter>, QueryError> {
+        query
+            .filters
+            .iter()
+            .flatten()
+            .map(|f| {
+                let dimension = Dimension::parse(&f.dimension).ok_or_else(|| {
+                    QueryError::InvalidQuery(format!("Unknown dimension: {}", f.dimension))
+                })?;
+                let operator = Operator::parse(&f.operator).ok_or_else(|| {
+                    QueryError::InvalidQuery(format!("Unknown operator: {}", f.operator))
+                })?;
+                Ok(Filter {
+                    dimension,
+                    operator,
+                    value: f.value.clone(),
+                })
+            })
+            .collect()
     }
 
-    fn resolve_date_range(query: &StatsQuery) -> Result<(String, String), QueryError> {
+    fn resolve_date_range(query: &StatsQuery) -> Result<DateRange, QueryError> {
         if let (Some(from), Some(to)) = (&query.date_from, &query.date_to) {
-            return Ok((parse_date(from)?.to_string(), parse_date(to)?.to_string()));
+            return Ok(DateRange::new(parse_date(from)?, parse_date(to)?));
         }
 
         let range = query.date_range.as_deref().unwrap_or("30d");
@@ -271,32 +275,7 @@ impl QueryService {
             _ => today - chrono::Duration::days(30),
         };
 
-        Ok((from.to_string(), today.to_string()))
-    }
-
-    fn dimension_to_column(dimension: &str) -> Result<&str, QueryError> {
-        match dimension {
-            "source" | "referrer_source" => Ok("referrer_source"),
-            "referrer" => Ok("referrer"),
-            "page" | "path" => Ok("path"),
-            "entry_page" => Ok("entry_page"),
-            "exit_page" => Ok("exit_page"),
-            "country" => Ok("country"),
-            "region" => Ok("region"),
-            "city" => Ok("city"),
-            "browser" => Ok("browser"),
-            "os" => Ok("os"),
-            "device_type" => Ok("device_type"),
-            "utm_source" => Ok("utm_source"),
-            "utm_medium" => Ok("utm_medium"),
-            "utm_campaign" => Ok("utm_campaign"),
-            "utm_content" => Ok("utm_content"),
-            "utm_term" => Ok("utm_term"),
-            "event_name" => Ok("event_name"),
-            _ => Err(QueryError::InvalidQuery(format!(
-                "Unknown dimension: {dimension}"
-            ))),
-        }
+        Ok(DateRange::new(from, today))
     }
 }
 
@@ -340,7 +319,11 @@ mod tests {
             filters: Some(
                 filters
                     .into_iter()
-                    .map(|(d, o, v)| StatsFilter { dimension: d.into(), operator: o.into(), value: v.into() })
+                    .map(|(d, o, v)| StatsFilter {
+                        dimension: d.into(),
+                        operator: o.into(),
+                        value: v.into(),
+                    })
                     .collect(),
             ),
             interval: None,
@@ -349,38 +332,21 @@ mod tests {
         }
     }
 
-    #[test]
-    fn several_sites_are_one_in_list_and_values_stay_bound() {
-        let hostile = "x' OR '1'='1";
-        let (sql, binds) = QueryService::build_where(&[7, 9], &query(vec![("path", "is", hostile)])).unwrap();
-        assert!(sql.starts_with("site_id IN (7, 9) AND "), "{sql}");
-        assert!(!sql.contains(hostile), "{sql}");
-        assert_eq!(binds.last().map(String::as_str), Some(hostile));
-    }
-
-    #[test]
-    fn a_filter_value_is_bound_never_spliced() {
-        let hostile = "x' OR site_id != 0 OR '1'='1";
-        let (sql, binds) = QueryService::build_where(&[7], &query(vec![("path", "is", hostile)])).unwrap();
-        assert!(!sql.contains(hostile), "the value reached the SQL: {sql}");
-        assert!(!sql.contains('\''), "no quote in the SQL at all: {sql}");
-        assert_eq!(sql.matches('?').count(), binds.len());
-        assert_eq!(binds, vec!["2026-09-01", "2026-09-30", hostile]);
-    }
-
-    #[test]
-    fn contains_is_a_literal_substring_match() {
-        let (sql, binds) = QueryService::build_where(&[7], &query(vec![("page", "contains", "50%_off")])).unwrap();
-        assert!(sql.contains("position(path, ?) > 0"), "{sql}");
-        assert!(!sql.contains("LIKE"), "{sql}");
-        assert_eq!(binds.last().unwrap(), "50%_off");
+    fn scope() -> SiteScope {
+        SiteScope {
+            ch_id: 7,
+            hostnames: vec!["a.example".into()],
+        }
     }
 
     #[test]
     fn dates_must_be_dates() {
         let mut q = query(vec![]);
         q.date_from = Some("2026-09-01' OR '1'='1".into());
-        assert!(matches!(QueryService::build_where(&[7], &q), Err(QueryError::InvalidQuery(_))));
+        assert!(matches!(
+            QueryService::resolve_date_range(&q),
+            Err(QueryError::InvalidQuery(_))
+        ));
         assert_eq!(parse_date("2026-09-01").unwrap().to_string(), "2026-09-01");
         assert!(parse_date("2026-09-01 ").is_err());
         assert!(parse_date("yesterday").is_err());
@@ -388,7 +354,32 @@ mod tests {
 
     #[test]
     fn unknown_columns_and_operators_are_refused() {
-        assert!(QueryService::build_where(&[7], &query(vec![("password", "is", "x")])).is_err());
-        assert!(QueryService::build_where(&[7], &query(vec![("path", "matches", "x")])).is_err());
+        assert!(QueryService::parse_filters(&query(vec![("password", "is", "x")])).is_err());
+        assert!(QueryService::parse_filters(&query(vec![("path", "matches", "x")])).is_err());
+        assert_eq!(
+            QueryService::parse_filters(&query(vec![("page", "contains", "x")]))
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_page_breakdown_counts_pageviews_of_the_sites_hostnames() {
+        let q = query(vec![]);
+        let dates = QueryService::resolve_date_range(&q).unwrap();
+        let sql = QueryService::breakdown_sql(&[scope()], &dates, &[], Dimension::Path, 10, 0);
+        assert!(sql.text.starts_with("SELECT path AS dimension, uniq(visitor_hash) AS visitors, count() AS pageviews FROM events WHERE ((site_id = 7 AND hostname IN (?))) AND date >= ? AND date <= ? AND event_name = 'pageview'"), "{}", sql.text);
+        assert_eq!(sql.binds, ["a.example", "2026-09-01", "2026-09-30"]);
+    }
+
+    #[test]
+    fn an_entry_page_breakdown_reads_sessions() {
+        let q = query(vec![]);
+        let dates = QueryService::resolve_date_range(&q).unwrap();
+        let sql = QueryService::breakdown_sql(&[scope()], &dates, &[], Dimension::EntryPage, 10, 0);
+        assert!(sql.text.starts_with("SELECT entry_page AS dimension, uniq(visitor_hash) AS visitors, sum(pageviews) AS pageview_total FROM sessions WHERE site_id IN (7)"), "{}", sql.text);
+        assert!(sql.text.contains("session_id IN (SELECT session_id FROM events WHERE ((site_id = 7 AND hostname IN (?)))"), "{}", sql.text);
+        assert_eq!(sql.text.matches('?').count(), sql.binds.len());
     }
 }

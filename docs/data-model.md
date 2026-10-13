@@ -57,6 +57,8 @@ erDiagram
         string name
         string timezone
         boolean public
+        string[] allowed_hostnames
+        long ch_id
         datetime created_at
         datetime updated_at
     }
@@ -169,6 +171,8 @@ Websites being tracked within an organization.
 | `name` | String | Human-readable site name |
 | `timezone` | String | IANA timezone for date bucketing (e.g. `America/New_York`) |
 | `public` | Boolean | Whether the dashboard is publicly accessible |
+| `allowed_hostnames` | Array\<String\> | Hostnames whose pages count for the site besides `domain` and `www.` + `domain` (a staging host, for example). Ingest drops events from any other host, and every report reads only these hosts. A local or private host never counts |
+| `ch_id` | Int64 | The site's `site_id` in ClickHouse: random, positive, and equal to no other site's id. Assigned when the site is created; a site created before it existed has none and keeps the id derived from its `_id` (its first 8 bytes) |
 | `created_at` | DateTime | Creation timestamp |
 | `updated_at` | DateTime | Last update timestamp |
 
@@ -178,6 +182,7 @@ Websites being tracked within an organization.
 |------|--------|---------|
 | `{ org_id: 1, domain: 1 }` | Yes | Prevent duplicate domains per org |
 | `{ domain: 1 }` | No | Tracker event lookup by domain |
+| `{ ch_id: 1 }` | Yes (sparse) | One site per ClickHouse id; sites without a `ch_id` are not indexed |
 
 ### goals
 
@@ -254,7 +259,7 @@ Stores individual pageview and custom events. Partitioned by month for efficient
 
 ```sql
 CREATE TABLE events (
-    site_id       String,
+    site_id       UInt64,   -- sites.ch_id, or derived from sites._id for older sites
     timestamp     DateTime64(3),
     date          Date,
     visitor_hash  String,
@@ -305,7 +310,7 @@ Aggregated session data derived from events. A session groups consecutive events
 
 ```sql
 CREATE TABLE sessions (
-    site_id         String,
+    site_id         UInt64,
     date            Date,
     visitor_hash    String,
     session_id      String,

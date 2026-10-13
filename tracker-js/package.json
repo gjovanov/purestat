@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "build": "rollup -c",
-    "watch": "rollup -c -w"
+    "watch": "rollup -c -w",
+    "test": "bun run build && bun test"
   },
   "devDependencies": {
     "@rollup/plugin-terser": "^0.4.4",

@@ -82,8 +82,12 @@ pub struct RedisSettings {
     pub url: String,
 }
 
+/// PURESTAT__OAUTH__ENABLED mounts the `/api/oauth/*` routes. Off by default:
+/// the sign-in flow behind them is unfinished.
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct OAuthSettings {
+    #[serde(default)]
+    pub enabled: bool,
     pub google: Option<OAuthProviderSettings>,
     pub facebook: Option<OAuthProviderSettings>,
     pub github: Option<OAuthProviderSettings>,
@@ -230,7 +234,9 @@ impl Settings {
             .set_default("jwt.issuer", "purestat")?
             // Redis defaults
             .set_default("redis.url", "redis://localhost:6380")?
-            // OAuth defaults (None by default — optional)
+            // OAuth: the routes are not mounted unless enabled; providers are
+            // None by default.
+            .set_default("oauth.enabled", false)?
             // Stripe defaults (empty by default — optional)
             // Email defaults
             .set_default("email.api_key", "")?

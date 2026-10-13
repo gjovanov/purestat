@@ -1,6 +1,7 @@
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use purestat_services::analytics::query::{QueryError, StatsQuery};
+use purestat_services::analytics::scope::SiteScope;
 use serde::Deserialize;
 
 use crate::error::ApiError;
@@ -17,17 +18,12 @@ pub async fn query(
     let org_oid = parse_oid(&org_id)?;
     let site_oid = parse_oid(&site_id)?;
     ensure_member(&state, org_oid, auth.user_id).await?;
-    ensure_site_in_org(&state, org_oid, site_oid).await?;
+    let site = ensure_site_in_org(&state, org_oid, site_oid).await?;
     tracing::info!(org_id = %org_oid, site_id = %site_oid, user_id = %auth.user_id, "stats query");
-
-    let bytes = site_oid.bytes();
-    let ch_site_id = u64::from_be_bytes([
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-    ]);
 
     let result = state
         .query
-        .query_stats(ch_site_id, &body)
+        .query_stats(&SiteScope::for_site(&site), &body)
         .await
         .map_err(|e| match e {
             QueryError::InvalidQuery(msg) => ApiError::BadRequest(msg),
@@ -44,6 +40,26 @@ pub struct MultiSiteStatsQuery {
     pub query: StatsQuery,
 }
 
+/// The scopes of the named sites, each resolved within the org. A site id
+/// from another org is a 400, as before.
+pub async fn org_site_scopes<'a>(
+    state: &AppState,
+    org_oid: bson::oid::ObjectId,
+    site_ids: impl IntoIterator<Item = &'a str>,
+) -> Result<Vec<SiteScope>, ApiError> {
+    let org_sites = state.sites.find_by_org(org_oid).await?;
+    site_ids
+        .into_iter()
+        .map(|sid| {
+            org_sites
+                .iter()
+                .find(|s| s.id.is_some_and(|id| id.to_hex() == sid))
+                .map(SiteScope::for_site)
+                .ok_or_else(|| ApiError::BadRequest(format!("Site {sid} not in org")))
+        })
+        .collect()
+}
+
 pub async fn query_multi(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -56,30 +72,12 @@ pub async fn query_multi(
     if body.site_ids.is_empty() {
         return Err(ApiError::BadRequest("No site IDs provided".to_string()));
     }
-
-    // Validate all site_ids belong to this org
-    let org_sites = state.sites.find_by_org(org_oid).await?;
-    let org_site_ids: std::collections::HashSet<String> = org_sites
-        .iter()
-        .filter_map(|s| s.id.map(|id| id.to_hex()))
-        .collect();
-
-    let mut ch_site_ids = Vec::new();
-    for sid in &body.site_ids {
-        if !org_site_ids.contains(sid) {
-            return Err(ApiError::BadRequest(format!("Site {sid} not in org")));
-        }
-        let site_oid = parse_oid(sid)?;
-        let bytes = site_oid.bytes();
-        ch_site_ids.push(u64::from_be_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]));
-    }
-    tracing::info!(org_id = %org_oid, sites = ch_site_ids.len(), user_id = %auth.user_id, "multi-site stats query");
+    let scopes = org_site_scopes(&state, org_oid, body.site_ids.iter().map(String::as_str)).await?;
+    tracing::info!(org_id = %org_oid, sites = scopes.len(), user_id = %auth.user_id, "multi-site stats query");
 
     let result = state
         .query
-        .query_stats_multi(&ch_site_ids, &body.query)
+        .query_stats_multi(&scopes, &body.query)
         .await
         .map_err(|e| match e {
             QueryError::InvalidQuery(msg) => ApiError::BadRequest(msg),
