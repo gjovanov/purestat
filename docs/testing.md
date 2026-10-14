@@ -41,6 +41,7 @@ Tests cover:
 - Stripe billing webhooks and plan enforcement
 - Rate limiting
 - Authorization (role-based access control)
+- Journeys: the paths from an entry page and into a goal against seeded visits in ClickHouse, and the k-anonymity rule, read straight from the query: no path with fewer than 5 visitors is ever returned ([Journeys](journeys.md#k-anonymity-fewer-than-5-visitors-fold-into-other))
 
 ### End-to-End Tests (Playwright)
 

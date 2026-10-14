@@ -41,6 +41,7 @@
 | Dark mode | Full dark/light theme support |
 | i18n ready | Internationalization via vue-i18n |
 | CSV export | Export filtered analytics data |
+| Journeys | Paths from an entry page and into a goal, as a Sankey; a path fewer than 5 visitors took is never shown ([docs](docs/journeys.md)) |
 | API keys | Scoped programmatic access to stats |
 | Invite system | Shareable invite links for team onboarding |
 

@@ -29,6 +29,11 @@
              param siteId"). -->
         <template v-if="siteStore.currentSite">
           <v-list-item
+            prepend-icon="mdi-chart-sankey"
+            title="Journeys"
+            :to="{ name: 'journeys', params: routeParams }"
+          />
+          <v-list-item
             prepend-icon="mdi-bullseye-arrow"
             title="Goals"
             :to="{ name: 'goals', params: routeParams }"

@@ -88,6 +88,11 @@ const router = createRouter({
       component: () => import('@/views/ApiKeys.vue'),
     },
     {
+      path: '/org/:orgId/site/:siteId/journeys',
+      name: 'journeys',
+      component: () => import('@/views/Journeys.vue'),
+    },
+    {
       path: '/org/:orgId/members',
       name: 'members',
       component: () => import('@/views/Members.vue'),
