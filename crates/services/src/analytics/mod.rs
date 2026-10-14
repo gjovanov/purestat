@@ -1,4 +1,5 @@
 pub mod campaign;
+pub mod funnel;
 pub mod geo;
 pub mod ingest;
 pub mod privacy;

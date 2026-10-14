@@ -12,8 +12,8 @@ use purestat_services::oauth::OAuthClient;
 use purestat_services::stripe::StripeService;
 use purestat_services::EmailService;
 use purestat_services::{
-    ActivationCodeDao, ApiKeyDao, AuthService, GoalDao, InviteDao, OrgDao, OrgMemberDao, SiteDao,
-    UserDao,
+    ActivationCodeDao, ApiKeyDao, AuthService, FunnelDao, GoalDao, InviteDao, OrgDao, OrgMemberDao,
+    SiteDao, UserDao,
 };
 use std::sync::Arc;
 
@@ -27,6 +27,7 @@ pub struct AppState {
     pub org_members: Arc<OrgMemberDao>,
     pub sites: Arc<SiteDao>,
     pub goals: Arc<GoalDao>,
+    pub funnels: Arc<FunnelDao>,
     pub invites: Arc<InviteDao>,
     pub api_keys: Arc<ApiKeyDao>,
     pub activation_codes: Arc<ActivationCodeDao>,
@@ -57,6 +58,7 @@ impl AppState {
         let org_members = Arc::new(OrgMemberDao::new(&db));
         let sites = Arc::new(SiteDao::new(&db));
         let goals = Arc::new(GoalDao::new(&db));
+        let funnels = Arc::new(FunnelDao::new(&db));
         let invites = Arc::new(InviteDao::new(&db));
         let api_keys = Arc::new(ApiKeyDao::new(&db));
         let activation_codes = Arc::new(ActivationCodeDao::new(&db));
@@ -111,6 +113,7 @@ impl AppState {
             org_members,
             sites,
             goals,
+            funnels,
             invites,
             api_keys,
             activation_codes,

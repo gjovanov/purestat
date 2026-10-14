@@ -465,6 +465,131 @@ Create a conversion goal.
 
 Delete a goal. Requires `owner` or `admin` role.
 
+### Funnels
+
+A funnel is 2 to 8 ordered steps counted within one visit; [Funnels](funnels.md) explains how. Members list, read and report on a site's funnels; creating, editing and deleting one requires the `owner` or `admin` role. A funnel id from another site, or a site from another org, is `404`.
+
+#### GET /api/org/{org_id}/site/{site_id}/funnel
+
+List the site's funnels, newest first.
+
+**Response (200):**
+
+```json
+[
+  {
+    "id": "507f1f77bcf86cd799439077",
+    "site_id": "507f1f77bcf86cd799439044",
+    "name": "Blog to signup",
+    "steps": [
+      { "type": "page", "pattern": "/blog/*", "goal_id": null, "label": "Read a post" },
+      { "type": "page", "pattern": "/pricing", "goal_id": null, "label": null },
+      { "type": "goal", "pattern": null, "goal_id": "507f1f77bcf86cd799439088", "label": null }
+    ]
+  }
+]
+```
+
+#### POST /api/org/{org_id}/site/{site_id}/funnel
+
+Create a funnel. Requires `owner` or `admin` role.
+
+**Request:**
+
+```json
+{
+  "name": "Blog to signup",
+  "steps": [
+    { "type": "page", "pattern": "/blog/*", "label": "Read a post" },
+    { "type": "page", "pattern": "/pricing" },
+    { "type": "goal", "goal_id": "507f1f77bcf86cd799439088" }
+  ]
+}
+```
+
+| Field | Rule |
+|-------|------|
+| `name` | Required, at most 100 characters |
+| `steps` | 2 to 8, in order |
+| `steps[].type` | `page` or `goal` |
+| `steps[].pattern` | For a `page` step: an exact path, or a pattern where `*` is any run of characters; starts with `/` or `*`; at most 512 characters |
+| `steps[].goal_id` | For a `goal` step: one of the site's goals |
+| `steps[].label` | Optional, at most 100 characters |
+
+**Response (201):** the funnel, as listed. A body that is not JSON, has a field this table does not list, or has a wrong type is `400`; a rule above broken is `422` with the reason, for example `{"error": "validation", "message": "step 2: goal_id is not a goal of this site"}`.
+
+#### GET /api/org/{org_id}/site/{site_id}/funnel/{funnel_id}
+
+Get one funnel.
+
+#### PUT /api/org/{org_id}/site/{site_id}/funnel/{funnel_id}
+
+Replace a funnel's name and steps. Same body, rules and errors as the create. Requires `owner` or `admin` role.
+
+#### DELETE /api/org/{org_id}/site/{site_id}/funnel/{funnel_id}
+
+Delete a funnel. Requires `owner` or `admin` role. Deleting a site deletes its funnels.
+
+#### POST /api/org/{org_id}/site/{site_id}/funnel/{funnel_id}/stats
+
+The funnel's numbers for a range of days. It is in the Stats rate-limit group, and it reads the site through the same hostnames as every [analytics endpoint](#analytics).
+
+**Request:**
+
+```json
+{
+  "date_from": "2026-10-01",
+  "date_to": "2026-10-13",
+  "breakdown": "utm_source",
+  "filters": [{ "dimension": "utm_campaign", "operator": "is", "value": "20261001-launch" }],
+  "limit": 10
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `date_from`, `date_to` | Yes | UTC days, `YYYY-MM-DD`, inclusive, at most 366 days apart. A visit counts on the day it started |
+| `breakdown` | No | One of `channel`, `referrer_source`, `referrer_host`, `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`, `utm_source_group`, `utm_medium_group`: the visit's own value, from its landing, as the [v1 query](#post-apiv1query) reads it (a campaign source normalised, a channel from the referrer) |
+| `filters` | No | Conditions on the same dimensions. Operators: `is`, `is_not`, `contains`, `starts_with`; the value is compared literally and case-sensitively |
+| `limit` | No | Breakdown rows, 1 to 100, default 10 |
+
+**Response (200):**
+
+```json
+{
+  "funnel": { "id": "507f1f77bcf86cd799439077", "site_id": "507f1f77bcf86cd799439044", "name": "Blog to signup", "steps": [] },
+  "steps": [
+    { "label": "Read a post", "type": "page", "visitors": 4, "conversion_from_previous": null, "conversion_from_start": 1.0, "dropoff": null },
+    { "label": "/pricing", "type": "page", "visitors": 2, "conversion_from_previous": 0.5, "conversion_from_start": 0.5, "dropoff": 2 },
+    { "label": "Signup", "type": "goal", "visitors": 1, "conversion_from_previous": 0.5, "conversion_from_start": 0.25, "dropoff": 1 }
+  ],
+  "breakdown": {
+    "dimension": "utm_source",
+    "rows": [
+      { "value": "linkedin", "steps": [
+        { "visitors": 2, "conversion_from_previous": null, "conversion_from_start": 1.0, "dropoff": null },
+        { "visitors": 2, "conversion_from_previous": 1.0, "conversion_from_start": 1.0, "dropoff": 0 },
+        { "visitors": 1, "conversion_from_previous": 0.5, "conversion_from_start": 0.5, "dropoff": 1 }
+      ] }
+    ],
+    "has_more": false
+  },
+  "meta": { "date_from": "2026-10-01", "date_to": "2026-10-13", "hostnames": ["example.com", "www.example.com"] }
+}
+```
+
+`funnel` is the funnel as listed (its steps are left out above). Per step:
+
+| Field | Value |
+|-------|-------|
+| `label` | The step's label, else its pattern, else its goal's name; `Deleted goal` when its goal no longer exists, and then `goal_missing` is `true` |
+| `visitors` | Distinct visitors whose visit reached the step, after the steps before it |
+| `conversion_from_previous` | `visitors` over the previous step's, 0 to 1; `null` for the first step, or when the previous step has none |
+| `conversion_from_start` | `visitors` over the first step's, 0 to 1; `null` when the first step has none |
+| `dropoff` | The previous step's visitors who did not reach this one; `null` for the first step |
+
+`breakdown` is `null` without one; its rows are ordered by the visitors at the first step, descending, then by value, and `has_more` says whether more values exist. A visitor whose visits came from two sources counts in both rows. A bad date, an unknown breakdown, filter dimension or operator, or a limit out of range is `400`.
+
 ### Members
 
 #### GET /api/org/{org_id}/member

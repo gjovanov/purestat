@@ -1,6 +1,7 @@
 mod activation_code;
 mod api_key;
 mod base;
+mod funnel;
 mod goal;
 mod invite;
 mod org;
@@ -11,6 +12,7 @@ mod user;
 pub use activation_code::ActivationCodeDao;
 pub use api_key::ApiKeyDao;
 pub use base::{DaoError, DaoResult, PaginatedResult, PaginationParams};
+pub use funnel::FunnelDao;
 pub use goal::GoalDao;
 pub use invite::InviteDao;
 pub use org::OrgDao;

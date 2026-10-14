@@ -36,6 +36,7 @@ Tests cover:
 - Event ingestion and visitor hashing
 - Stats queries and aggregation
 - Goal creation and conversion tracking
+- Funnels: their definitions, roles and isolation between orgs, and the report against seeded visits in ClickHouse, which pins how `windowFunnel` reads a visit ([Funnels](funnels.md#why-strict_once))
 - Invite creation, link generation, and acceptance
 - API key lifecycle and scoped access
 - Stripe billing webhooks and plan enforcement

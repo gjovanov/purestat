@@ -440,7 +440,9 @@ fn push_event_filters(sql: &mut Sql, filters: &[Filter], family: Family, scopes:
     }
 }
 
-fn push_goal_condition(sql: &mut Sql, goal: &GoalSpec) {
+/// What completes the goal, as a condition on an event. Every report that
+/// reads goals matches them with it, so a goal counts the same in each.
+pub(crate) fn push_goal_condition(sql: &mut Sql, goal: &GoalSpec) {
     if goal.conditions.is_empty() {
         sql.push("0");
         return;

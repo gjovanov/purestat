@@ -125,6 +125,7 @@ pub async fn delete(
     ensure_site_in_org(&state, org_oid, site_oid).await?;
 
     state.goals.delete_all_for_site(site_oid).await?;
+    state.funnels.delete_all_for_site(site_oid).await?;
     state.sites.delete(site_oid).await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -78,6 +78,11 @@ const router = createRouter({
       component: () => import('@/views/Goals.vue'),
     },
     {
+      path: '/org/:orgId/site/:siteId/funnels',
+      name: 'funnels',
+      component: () => import('@/views/Funnels.vue'),
+    },
+    {
       path: '/org/:orgId/site/:siteId/settings',
       name: 'site-settings',
       component: () => import('@/views/SiteSettings.vue'),

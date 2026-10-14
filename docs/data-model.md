@@ -18,6 +18,8 @@ erDiagram
     orgs ||--o{ sites : "owns"
     orgs ||--o{ invites : "has invites"
     sites ||--o{ goals : "tracks"
+    sites ||--o{ funnels : "has funnels"
+    funnels }o--o{ goals : "steps may name"
     sites ||--o{ api_keys : "has keys"
 
     users {
@@ -72,6 +74,16 @@ erDiagram
         string event_name
         string page_path
         datetime created_at
+    }
+
+    funnels {
+        ObjectId _id
+        ObjectId site_id
+        ObjectId org_id
+        string name
+        array steps
+        datetime created_at
+        datetime updated_at
     }
 
     invites {
@@ -209,6 +221,28 @@ Conversion goals tracked for a site. Goals can be event-based (custom event name
 | `{ site_id: 1 }` | No | List goals for a site |
 | `{ site_id: 1, goal_type: 1, event_name: 1 }` | Yes (sparse) | Prevent duplicate event goals |
 | `{ site_id: 1, goal_type: 1, page_path: 1 }` | Yes (sparse) | Prevent duplicate page goals |
+
+### funnels
+
+Ordered steps a visit can go through, defined for a site ([Funnels](funnels.md)). Deleting the site deletes its funnels.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `_id` | ObjectId | Primary key |
+| `site_id` | ObjectId | Reference to `sites._id` |
+| `org_id` | ObjectId | Reference to `orgs._id` |
+| `name` | String | Funnel name |
+| `steps` | Array\<Document\> | 2 to 8 steps, in order. Each has `type` (`page` or `goal`), `pattern` (a page step's path or `*` pattern), `goal_id` (a goal step's `goals._id`) and an optional `label` |
+| `created_at` | DateTime | Creation timestamp |
+| `updated_at` | DateTime | Last update timestamp |
+
+A goal step names its goal by id. If the goal is deleted, the step stays and matches nothing.
+
+**Indexes:**
+
+| Keys | Unique | Purpose |
+|------|--------|---------|
+| `{ site_id: 1 }` | No | List funnels for a site |
 
 ### invites
 
