@@ -38,13 +38,21 @@ const GOOGLE_SECRET: &str = "fake-google-client-secret";
 const GITHUB_ID: &str = "fake-github-client-id";
 const GITHUB_SECRET: &str = "fake-github-client-secret";
 
-/// The public address the test API believes it has: https, so the flow
-/// cookie is the production one (`__Host-`, Secure).
+/// The public address a test API believes it has, unless a test says
+/// otherwise: https, so its cookies are the production ones (`Secure`, the
+/// `__Host-` flow cookie).
 const PUBLIC_URL: &str = "https://purestat.test";
-const FLOW_COOKIE: &str = "__Host-purestat_oauth";
 
-fn signed_in_url() -> String {
-    format!("{PUBLIC_URL}/auth/oauth")
+/// A plain-http public address, as in local development.
+const DEV_URL: &str = "http://localhost:5173";
+
+/// The flow cookie's name for a public address.
+fn flow_cookie_name(public_url: &str) -> &'static str {
+    if public_url.starts_with("https://") {
+        "__Host-purestat_oauth"
+    } else {
+        "purestat_oauth"
+    }
 }
 
 fn uid() -> String {
@@ -110,6 +118,9 @@ impl Person {
 
 #[derive(Default)]
 struct MockState {
+    /// The public address of the API under test: its callback addresses are
+    /// the registered ones.
+    public_url: String,
     /// code → (the PKCE challenge it is bound to, who signed in)
     codes: HashMap<String, (String, Person)>,
     /// access token → who
@@ -126,8 +137,11 @@ struct Mock {
 }
 
 impl Mock {
-    async fn start() -> Self {
-        let state = Shared::default();
+    async fn start(public_url: &str) -> Self {
+        let state = Shared::new(Mutex::new(MockState {
+            public_url: public_url.to_string(),
+            ..MockState::default()
+        }));
         let app = Router::new()
             .route("/google/token", post(google_token))
             .route("/google/userinfo", get(google_userinfo))
@@ -189,7 +203,7 @@ fn exchange(
     if field("client_id") != Some(id) || field("client_secret") != Some(secret) {
         return Err("invalid_client");
     }
-    let callback = format!("{PUBLIC_URL}/api/oauth/{provider}/callback");
+    let callback = format!("{}/api/oauth/{provider}/callback", s.public_url);
     if field("redirect_uri") != Some(callback.as_str()) {
         return Err("redirect_uri_mismatch");
     }
@@ -332,6 +346,8 @@ enum Proof {
 
 struct Harness {
     api: String,
+    /// The public address the API was given (`PURESTAT__APP__FRONTEND_URL`).
+    public_url: String,
     http: reqwest::Client,
     mock: Mock,
     db: mongodb::Database,
@@ -360,6 +376,7 @@ struct Landing {
     status: u16,
     location: String,
     cookies: Vec<String>,
+    public_url: String,
 }
 
 impl Landing {
@@ -373,7 +390,7 @@ impl Landing {
 
     /// The code of a refusal (`/login?oauth_error=<code>`).
     fn refusal(&self) -> Option<String> {
-        let prefix = format!("{PUBLIC_URL}/login?oauth_error=");
+        let prefix = format!("{}/login?oauth_error=", self.public_url);
         self.location.strip_prefix(&prefix).map(str::to_string)
     }
 }
@@ -419,7 +436,8 @@ impl Harness {
         };
         configure(&mut settings);
 
-        let mock = Mock::start().await;
+        let public_url = settings.app.frontend_url.clone();
+        let mock = Mock::start(&public_url).await;
         let db = purestat_db::connect(&settings).await.expect("MongoDB");
         purestat_db::indexes::ensure_indexes(&db)
             .await
@@ -452,6 +470,7 @@ impl Harness {
 
         Harness {
             api,
+            public_url,
             // A browser that does not follow redirects, so each hop is seen,
             // and keeps no cookie jar: every cookie sent is one a test chose.
             http: reqwest::Client::builder()
@@ -468,8 +487,25 @@ impl Harness {
         let _ = self.db.drop().await;
     }
 
+    /// Where a finished sign-in lands.
+    fn signed_in_url(&self) -> String {
+        format!("{}/auth/oauth", self.public_url)
+    }
+
+    fn flow_cookie(&self) -> &'static str {
+        flow_cookie_name(&self.public_url)
+    }
+
     async fn get(&self, path: &str, cookie: Option<&str>) -> reqwest::Response {
         let mut request = self.http.get(format!("{}{path}", self.api));
+        if let Some(cookie) = cookie {
+            request = request.header(header::COOKIE, cookie);
+        }
+        request.send().await.expect("request")
+    }
+
+    async fn post(&self, path: &str, body: Value, cookie: Option<&str>) -> reqwest::Response {
+        let mut request = self.http.post(format!("{}{path}", self.api)).json(&body);
         if let Some(cookie) = cookie {
             request = request.header(header::COOKIE, cookie);
         }
@@ -494,7 +530,7 @@ impl Harness {
         }
         let set_cookie = set_cookies(&response)
             .into_iter()
-            .find(|c| c.starts_with(&format!("{FLOW_COOKIE}=")))
+            .find(|c| c.starts_with(&format!("{}=", self.flow_cookie())))
             .expect("a flow cookie");
         let cookie = set_cookie.split(';').next().unwrap().to_string();
         let authorize = Url::parse(&location(&response)).expect("a provider address");
@@ -529,6 +565,7 @@ impl Harness {
             status: response.status().as_u16(),
             location: location(&response),
             cookies: set_cookies(&response),
+            public_url: self.public_url.clone(),
         }
     }
 
@@ -684,7 +721,7 @@ async fn google_creates_a_verified_account_and_the_session_is_only_in_cookies() 
         .await;
     assert_eq!(landing.status, 303);
     // A fixed SPA address: no token, no code, no user id in it.
-    assert_eq!(landing.location, signed_in_url());
+    assert_eq!(landing.location, h.signed_in_url());
     let session = landing.session().expect("a session cookie");
     for name in ["access_token=", "refresh_token="] {
         let cookie = landing
@@ -693,6 +730,7 @@ async fn google_creates_a_verified_account_and_the_session_is_only_in_cookies() 
             .find(|c| c.starts_with(name))
             .unwrap_or_else(|| panic!("{name} is set"));
         assert!(cookie.contains("HttpOnly"), "{cookie}");
+        assert!(cookie.ends_with("; Secure"), "https: {cookie}");
         let value = cookie.split(';').next().unwrap().trim_start_matches(name);
         assert!(!landing.location.contains(value));
     }
@@ -700,7 +738,7 @@ async fn google_creates_a_verified_account_and_the_session_is_only_in_cookies() 
         landing
             .cookies
             .iter()
-            .any(|c| c.starts_with(&format!("{FLOW_COOKIE}=;")) && c.contains("Max-Age=0")),
+            .any(|c| c.starts_with(&format!("{}=;", h.flow_cookie())) && c.contains("Max-Age=0")),
         "the flow cookie is cleared: {:?}",
         landing.cookies
     );
@@ -886,7 +924,7 @@ async fn github_signs_in_with_the_primary_verified_address_only() {
             ),
         )
         .await;
-    assert_eq!(landing.location, signed_in_url(), "{landing:?}");
+    assert_eq!(landing.location, h.signed_in_url(), "{landing:?}");
     let user = h.user(&email).await.expect("an account");
     assert_eq!(user.username, login.to_lowercase());
     assert!(user.is_verified);
@@ -951,7 +989,7 @@ async fn an_account_that_proved_the_address_is_linked_and_found_by_identity_afte
 
     let person = Person::google(&email, true);
     let landing = h.sign_in("google", person.clone()).await;
-    assert_eq!(landing.location, signed_in_url(), "{landing:?}");
+    assert_eq!(landing.location, h.signed_in_url(), "{landing:?}");
     let me = h.me(&landing.session().unwrap()).await;
     assert_eq!(me["id"], existing.to_hex().as_str(), "the same account");
     let user = h.user_by_id(existing).await;
@@ -1089,4 +1127,105 @@ async fn the_providers_list_shows_what_works_and_other_names_are_404() {
         404
     );
     h.finish().await;
+}
+
+/// Every cookie the API sets is `Secure` exactly when its public address is
+/// https: the session cookies of a password login, a refresh, a logout and
+/// an OAuth sign-in, and the OAuth flow cookie. Over plain http (local
+/// development) none is, or a browser would drop them all.
+#[tokio::test]
+async fn cookies_are_secure_exactly_when_the_public_url_is_https() {
+    for (public_url, secure) in [(PUBLIC_URL, true), (DEV_URL, false)] {
+        let h = Harness::start(|s| s.app.frontend_url = public_url.to_string()).await;
+
+        // A password account (no email service: activated at registration),
+        // signed in, refreshed and signed out.
+        let email = unique_email("cookies");
+        let password = format!("pw-{}", uid());
+        let register = h
+            .post(
+                "/api/auth/register",
+                json!({ "email": email, "username": format!("c-{}", &uid()[..10]), "password": password }),
+                None,
+            )
+            .await;
+        assert_eq!(register.status(), 201);
+        let login = h
+            .post(
+                "/api/auth/login",
+                json!({ "email": email, "password": password }),
+                None,
+            )
+            .await;
+        assert_eq!(login.status(), 200);
+        let login_cookies = set_cookies(&login);
+        let refresh_cookie = login_cookies
+            .iter()
+            .find(|c| c.starts_with("refresh_token="))
+            .expect("a refresh cookie")
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        let refresh = h
+            .post("/api/auth/refresh", json!({}), Some(&refresh_cookie))
+            .await;
+        assert_eq!(refresh.status(), 200);
+        let logout = h.post("/api/auth/logout", json!({}), None).await;
+        assert_eq!(logout.status(), 200);
+
+        // An OAuth sign-in: the flow cookie, then the session.
+        let started = h.start_sign_in("google").await;
+        let code = h.mock.issue_code(
+            &started.challenge,
+            Person::google(&unique_email("cookies-oauth"), true),
+        );
+        let landing = h
+            .callback(
+                "google",
+                &[("code", &code), ("state", &started.state)],
+                Some(&started.cookie),
+            )
+            .await;
+        assert_eq!(landing.location, h.signed_in_url(), "{landing:?}");
+
+        let mut seen: Vec<(&str, String)> = Vec::new();
+        seen.extend(login_cookies.into_iter().map(|c| ("login", c)));
+        seen.extend(set_cookies(&refresh).into_iter().map(|c| ("refresh", c)));
+        seen.extend(set_cookies(&logout).into_iter().map(|c| ("logout", c)));
+        seen.push(("oauth start", started.set_cookie.clone()));
+        seen.extend(
+            landing
+                .cookies
+                .iter()
+                .cloned()
+                .map(|c| ("oauth callback", c)),
+        );
+        // Two session cookies from each of login, refresh, logout and the
+        // callback; the flow cookie set, and cleared by the callback.
+        assert_eq!(seen.len(), 10, "{public_url}: {seen:#?}");
+        for (what, cookie) in &seen {
+            let attributes: Vec<&str> = cookie.split(';').skip(1).map(str::trim).collect();
+            assert_eq!(
+                attributes.contains(&"Secure"),
+                secure,
+                "{public_url}, {what}: {cookie}"
+            );
+            assert!(attributes.contains(&"HttpOnly"), "{what}: {cookie}");
+        }
+        // Under https the flow cookie is also `__Host-` on path `/`; over
+        // http it is scoped to /api/oauth.
+        assert!(
+            started.set_cookie.starts_with(flow_cookie_name(public_url)),
+            "{}",
+            started.set_cookie
+        );
+        assert_eq!(
+            started.set_cookie.contains("Path=/api/oauth"),
+            !secure,
+            "{}",
+            started.set_cookie
+        );
+        h.finish().await;
+    }
 }

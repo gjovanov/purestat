@@ -228,11 +228,6 @@ impl OAuthClient {
         format!("{}/api/oauth/{}/callback", self.public_url, provider.slug())
     }
 
-    /// Whether cookies are `Secure`: the public address is https.
-    pub fn secure_cookies(&self) -> bool {
-        self.public_url.starts_with("https://")
-    }
-
     /// Where to send the browser: the provider's sign-in page, carrying the
     /// flow's `state` and PKCE challenge.
     pub fn authorize_url(
@@ -518,8 +513,10 @@ mod tests {
             c.redirect_uri(Provider::GitHub),
             "https://purestat.example/api/oauth/github/callback"
         );
-        assert!(c.secure_cookies());
-        assert!(!client(true, "http://localhost:5173").secure_cookies());
+        assert_eq!(
+            client(true, "http://localhost:5173").redirect_uri(Provider::Google),
+            "http://localhost:5173/api/oauth/google/callback"
+        );
     }
 
     #[test]

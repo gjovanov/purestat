@@ -75,7 +75,7 @@ pub async fn oauth_redirect(
         .oauth
         .authorize_url(provider, &begun.state, &begun.code_challenge)
         .map_err(|e| ApiError::Internal(e.to_string()))?;
-    let secure = state.oauth.secure_cookies();
+    let secure = state.settings.app.secure_cookies();
     Ok(redirect(&location, flow_cookie(secure, &begun.flow_id)))
 }
 
@@ -92,7 +92,8 @@ pub async fn oauth_callback(
     Query(query): Query<CallbackQuery>,
 ) -> Result<Response, ApiError> {
     let provider = available_provider(&state, &slug)?;
-    let secure = state.oauth.secure_cookies();
+    // One rule for every cookie the API sets (AppSettings::secure_cookies).
+    let secure = state.settings.app.secure_cookies();
 
     // 1. The flow: used once, whatever happens below.
     let flows = OAuthFlows::new(RedisFlowStore::new(state.redis.clone()));
@@ -168,8 +169,8 @@ pub async fn oauth_callback(
     };
     tracing::info!(provider = provider.slug(), user_id = %user_id, outcome, "OAuth: signed in");
 
-    // 5. The session, as a password login sets it. The address bar gets none
-    //    of it.
+    // 5. The session, as a password login sets it (Secure under https). The
+    //    address bar gets none of it.
     let tokens = state
         .auth
         .generate_access_token(&user_id, &user.email, &user.username)
@@ -187,7 +188,7 @@ pub async fn oauth_callback(
         &format!("{}{SIGNED_IN_PATH}", state.oauth.public_url()),
         clear_flow_cookie(secure),
     );
-    set_auth_cookies(response.headers_mut(), &access, &refresh);
+    set_auth_cookies(response.headers_mut(), &access, &refresh, secure);
     Ok(response)
 }
 
@@ -214,7 +215,10 @@ fn available_provider(state: &AppState, slug: &str) -> Result<Provider, ApiError
 /// Back to the sign-in page with the reason, and the flow cookie cleared.
 fn refuse(state: &AppState, code: &str) -> Response {
     let location = format!("{}/login?oauth_error={code}", state.oauth.public_url());
-    redirect(&location, clear_flow_cookie(state.oauth.secure_cookies()))
+    redirect(
+        &location,
+        clear_flow_cookie(state.settings.app.secure_cookies()),
+    )
 }
 
 /// A 303 to `location` that sets `cookie` and is never cached.

@@ -169,7 +169,12 @@ pub async fn login(
             .generate_refresh_token(&user_id, &user.email, &user.username)?;
 
     let mut headers = HeaderMap::new();
-    set_auth_cookies(&mut headers, &access_token, &refresh_token);
+    set_auth_cookies(
+        &mut headers,
+        &access_token,
+        &refresh_token,
+        state.settings.app.secure_cookies(),
+    );
 
     Ok((
         headers,
@@ -180,20 +185,9 @@ pub async fn login(
     ))
 }
 
-pub async fn logout() -> (HeaderMap, StatusCode) {
+pub async fn logout(State(state): State<AppState>) -> (HeaderMap, StatusCode) {
     let mut headers = HeaderMap::new();
-    headers.append(
-        axum::http::header::SET_COOKIE,
-        HeaderValue::from_static(
-            "access_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-        ),
-    );
-    headers.append(
-        axum::http::header::SET_COOKIE,
-        HeaderValue::from_static(
-            "refresh_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-        ),
-    );
+    clear_auth_cookies(&mut headers, state.settings.app.secure_cookies());
     (headers, StatusCode::OK)
 }
 
@@ -252,7 +246,12 @@ pub async fn refresh(
             .generate_refresh_token(&uid, &user.email, &user.username)?;
 
     let mut resp_headers = HeaderMap::new();
-    set_auth_cookies(&mut resp_headers, &new_access, &new_refresh);
+    set_auth_cookies(
+        &mut resp_headers,
+        &new_access,
+        &new_refresh,
+        state.settings.app.secure_cookies(),
+    );
 
     Ok((
         resp_headers,
@@ -357,15 +356,36 @@ pub async fn resend_activation(
     Ok(ok)
 }
 
-/// The session cookies, for a password login and an OAuth sign-in alike.
-pub(crate) fn set_auth_cookies(headers: &mut HeaderMap, access_token: &str, refresh_token: &str) {
+/// The session cookies, for a password login, a refresh and an OAuth sign-in
+/// alike. `secure` is `AppSettings::secure_cookies`: under https a browser
+/// then never sends them over plain http.
+pub(crate) fn set_auth_cookies(
+    headers: &mut HeaderMap,
+    access_token: &str,
+    refresh_token: &str,
+    secure: bool,
+) {
+    append_session_cookie(headers, "access_token", access_token, 86400, secure);
+    append_session_cookie(headers, "refresh_token", refresh_token, 604800, secure);
+}
+
+/// Delete the session cookies (logout), with the attributes they were set
+/// with.
+pub(crate) fn clear_auth_cookies(headers: &mut HeaderMap, secure: bool) {
+    append_session_cookie(headers, "access_token", "", 0, secure);
+    append_session_cookie(headers, "refresh_token", "", 0, secure);
+}
+
+fn append_session_cookie(
+    headers: &mut HeaderMap,
+    name: &str,
+    value: &str,
+    max_age: u64,
+    secure: bool,
+) {
+    let secure = if secure { "; Secure" } else { "" };
     if let Ok(val) = HeaderValue::from_str(&format!(
-        "access_token={access_token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400"
-    )) {
-        headers.append(axum::http::header::SET_COOKIE, val);
-    }
-    if let Ok(val) = HeaderValue::from_str(&format!(
-        "refresh_token={refresh_token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800"
+        "{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}"
     )) {
         headers.append(axum::http::header::SET_COOKIE, val);
     }
@@ -379,5 +399,57 @@ fn user_to_response(user: &purestat_db::models::User) -> UserResponse {
         display_name: user.display_name.clone(),
         avatar: user.avatar.clone(),
         locale: user.locale.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set_cookies(headers: &HeaderMap) -> Vec<String> {
+        headers
+            .get_all(axum::http::header::SET_COOKIE)
+            .iter()
+            .map(|v| v.to_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn session_cookies_are_secure_under_https_only() {
+        let mut https = HeaderMap::new();
+        set_auth_cookies(&mut https, "a.b.c", "d.e.f", true);
+        assert_eq!(
+            set_cookies(&https),
+            [
+                "access_token=a.b.c; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400; Secure",
+                "refresh_token=d.e.f; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800; Secure",
+            ]
+        );
+        let mut http = HeaderMap::new();
+        set_auth_cookies(&mut http, "a.b.c", "d.e.f", false);
+        assert_eq!(
+            set_cookies(&http),
+            [
+                "access_token=a.b.c; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400",
+                "refresh_token=d.e.f; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
+            ]
+        );
+    }
+
+    #[test]
+    fn logout_clears_the_session_cookies_with_the_same_attributes() {
+        let mut https = HeaderMap::new();
+        clear_auth_cookies(&mut https, true);
+        assert_eq!(
+            set_cookies(&https),
+            [
+                "access_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure",
+                "refresh_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure",
+            ]
+        );
+        let mut http = HeaderMap::new();
+        clear_auth_cookies(&mut http, false);
+        assert!(set_cookies(&http).iter().all(|c| !c.contains("Secure")));
+        assert_eq!(set_cookies(&http).len(), 2);
     }
 }

@@ -25,7 +25,24 @@ pub struct Settings {
 pub struct AppSettings {
     pub host: String,
     pub port: u16,
+    /// The public address of purestat, where the SPA and `/api` are served
+    /// (PURESTAT__APP__FRONTEND_URL).
     pub frontend_url: String,
+}
+
+impl AppSettings {
+    /// Whether every cookie the API sets is `Secure`: purestat is served over
+    /// https (`frontend_url`). The session cookies of a password login, a
+    /// refresh, a logout and an OAuth sign-in, and the OAuth flow cookie, all
+    /// follow this one rule. Over plain http (local development) none is: a
+    /// browser does not keep a `Secure` cookie from an http page, localhost
+    /// aside.
+    pub fn secure_cookies(&self) -> bool {
+        self.frontend_url
+            .trim()
+            .get(..8)
+            .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -393,6 +410,40 @@ mod tests {
         ]);
         assert!(s.oauth.github.is_none());
         assert!(!s.oauth.google.expect("google").is_complete());
+    }
+
+    #[test]
+    fn cookies_are_secure_exactly_when_the_public_address_is_https() {
+        let app = |url: &str| AppSettings {
+            host: "0.0.0.0".to_string(),
+            port: 3000,
+            frontend_url: url.to_string(),
+        };
+        for https in [
+            "https://purestat.ai",
+            "https://purestat.ai/",
+            "HTTPS://purestat.ai",
+            " https://purestat.example:8443 ",
+        ] {
+            assert!(app(https).secure_cookies(), "{https:?}");
+        }
+        for plain in [
+            "http://localhost:5173",
+            "http://purestat.ai",
+            "localhost:5173",
+            "",
+            "https:/x",
+            "httpsx://purestat.ai",
+        ] {
+            assert!(!app(plain).secure_cookies(), "{plain:?}");
+        }
+        // The default is the Vite dev server, over http.
+        assert!(!load_from(&[]).app.secure_cookies());
+        assert!(
+            load_from(&[("PURESTAT__APP__FRONTEND_URL", "https://purestat.ai")])
+                .app
+                .secure_cookies()
+        );
     }
 
     #[test]

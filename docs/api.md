@@ -12,7 +12,7 @@ For self-hosted instances, replace with your configured domain.
 
 Purestat uses **JWT tokens** for authentication. Tokens are issued on login and can be provided in two ways:
 
-1. **httpOnly cookie** (`access_token`, with `refresh_token` for `POST /api/auth/refresh`) -- Set on login and by the [OAuth sign-in](#oauth-sign-in). Used by the SPA frontend.
+1. **httpOnly cookie** (`access_token`, with `refresh_token` for `POST /api/auth/refresh`) -- Set on login, refresh and by the [OAuth sign-in](#oauth-sign-in), and cleared by `POST /api/auth/logout`. `SameSite=Lax`, and `Secure` when purestat is served over https (`PURESTAT__APP__FRONTEND_URL` starts with `https://`), so a browser never sends them over plain http. Used by the SPA frontend.
 2. **Authorization header** -- `Authorization: Bearer <token>`. Used for programmatic API access.
 
 An **API key** authenticates [`POST /api/v1/query`](#post-apiv1query) with the `X-API-Key` header. A key belongs to one site and reads only that site; it needs the `stats:read` scope. The dashboard endpoints take a JWT, not a key.

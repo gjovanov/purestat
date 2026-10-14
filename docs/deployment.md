@@ -174,6 +174,8 @@ All configuration is done via environment variables using the `PURESTAT__SECTION
 
 Anyone who knows the JWT secret can sign in as any user, so the API **refuses to start** when it is unset, shorter than 32 bytes, or one of the `change-me…` placeholders this repository has shipped in `.env.example` and the compose files.
 
+The session cookies (`access_token`, `refresh_token`) are `HttpOnly` and `SameSite=Lax`, and `Secure` when `PURESTAT__APP__FRONTEND_URL` is an `https` address (see [OAuth](#oauth)).
+
 The visitor-hash salt needs no setting: the API generates a random one per day and keeps it in Redis (`PURESTAT__PRIVACY__SALT_TTL_HOURS`, default `48`).
 
 ### OAuth
@@ -187,7 +189,7 @@ Sign-in with Google and GitHub. It is off by default; with it off, `/api/oauth/*
 | `PURESTAT__OAUTH__GOOGLE__CLIENT_SECRET` | (none) | The Google OAuth client's secret |
 | `PURESTAT__OAUTH__GITHUB__CLIENT_ID` | (none) | The GitHub OAuth App's client ID |
 | `PURESTAT__OAUTH__GITHUB__CLIENT_SECRET` | (none) | The GitHub OAuth App's client secret |
-| `PURESTAT__APP__FRONTEND_URL` | `http://localhost:5173` | The public address of purestat, where the SPA and `/api` are both served (`https://purestat.ai` in production). The callback addresses derive from it, and an `https` address makes the sign-in cookies `Secure` |
+| `PURESTAT__APP__FRONTEND_URL` | `http://localhost:5173` | The public address of purestat, where the SPA and `/api` are both served (`https://purestat.ai` in production). The callback addresses derive from it, and an `https` address makes every cookie the API sets `Secure`: the session cookies of a password login, a refresh and an OAuth sign-in, and the OAuth flow cookie. Over `http` (local development) none is. So an `https` address must really be served over https, or browsers drop the cookies |
 
 Note the double underscore between the provider and the field (`GOOGLE__CLIENT_ID`). A provider takes part only when the switch is on and it has both a client ID and a secret; `GET /api/auth/providers` lists the ones that do, and the API logs which at startup. Only Google and GitHub exist: Facebook, LinkedIn and Microsoft were listed once but never worked, and their variables are ignored.
 
