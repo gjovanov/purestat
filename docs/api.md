@@ -51,7 +51,7 @@ Requests are limited per client IP address and endpoint group, over a 60-second 
 |----------------|-------|---------------------|
 | Auth | `/api/auth/*`, `/api/oauth/*` | 10 |
 | Tracker (event ingest) | `/api/event` | 1000 |
-| Stats / Export | every path ending in `/stats` or `/export`, and `/api/v1/*` | 120 |
+| Stats / Export | every path ending in `/stats`, `/query` or `/export`, and `/api/v1/*` | 120 |
 | API | every other `/api/*` path | 300 |
 
 `/api/health` and `/api/stripe/webhook` are not limited. The limits are configurable: see [Deployment](deployment.md#rate-limiting).
@@ -518,11 +518,32 @@ Revoke an API key. A revoked key is refused at once.
 
 ### Analytics
 
-Every analytics endpoint (stats, realtime, export and [`/api/v1/query`](#post-apiv1query)) reads a site through the same rule ingest applies: only events whose page host is the site's domain, `www.` + the domain, or one of its `allowed_hostnames` count, including events recorded before that rule existed. Visitor and pageview counts are over `pageview` events; engagement and custom events are not pageviews. The `entry_page` and `exit_page` breakdowns read visits.
+Every analytics endpoint (query, stats, realtime, export and [`/api/v1/query`](#post-apiv1query)) reads a site through the same rule ingest applies: only events whose page host is the site's domain, `www.` + the domain, or one of its `allowed_hostnames` count, including events recorded before that rule existed. Visitor and pageview counts are over `pageview` events; engagement and custom events are not pageviews. The `entry_page` and `exit_page` breakdowns read visits.
+
+#### POST /api/org/{org_id}/site/{site_id}/query
+
+The dashboard's reports for a signed-in member of the org: the [v1 query](#post-apiv1query) on this site, with the same body, the same validation, the same rows and the same `meta`. What the dashboard shows is what an API key reads. Goals are the site's.
+
+```json
+{
+  "date_from": "2026-10-01",
+  "date_to": "2026-10-14",
+  "dimensions": ["channel"],
+  "metrics": ["visitors", "visits"],
+  "filters": [{ "dimension": "utm_source", "operator": "is", "value": "linkedin" }],
+  "limit": 10
+}
+```
+
+Errors use the shape of the other dashboard endpoints (`{"error": "bad_request", "message": "<what is wrong>"}`): 400 for a body the v1 query refuses, 403 for a caller who is not a member of the org, 404 for a site that is not the org's.
+
+#### POST /api/org/{org_id}/analytics/query?site_ids={id},{id}
+
+The same report over several sites of the org at once, each read through its own hostnames: what the org dashboard shows for the selected sites. `site_ids` is a comma-separated list; a site of another org is a 400. Goals belong to a site, so a request that names goals is a 400. The answer's `meta` carries `sites` (how many were read), `date_from`, `date_to`, `limit`, `offset` and `has_more`.
 
 #### POST /api/org/{org_id}/site/{site_id}/stats
 
-Query aggregated analytics data. This is the primary endpoint for the dashboard.
+The dashboard's original endpoint, kept for existing clients. The dashboard now reads [`/query`](#post-apiorgorg_idsitesite_idquery), which also reports goals, channels and campaigns.
 
 **Request:**
 
@@ -702,11 +723,36 @@ A field the table does not list, an unknown name, or a name given twice is a `40
 | `entry_page`, `exit_page` | The visit's first and last page |
 | `referrer_source` | Where the visit came from: `Direct`, a known source such as `Google`, or the referrer's host |
 | `referrer_host` | The host of the visit's referrer |
-| `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term` | The visit's campaign, from its landing page |
+| `channel` | The visit's channel, from its referrer's host: `search`, `ai_assistant`, `social`, `community`, `code`, `self`, `direct` or `other` (see [Channels and campaigns](#channels-and-campaigns)) |
+| `utm_source`, `utm_medium` | The visit's campaign source and medium, from its landing page, normalised (see below) |
+| `utm_campaign`, `utm_content`, `utm_term` | The rest of the visit's campaign, as its landing page carried it |
+| `utm_source_group`, `utm_medium_group` | The source or medium if it is in the campaign table, else `other` |
 | `country`, `device_type`, `browser`, `os` | The visitor's |
 | `event_name` | The name of the event a metric counts: `pageview` for `visitors`, `pageviews` and `reads`, a goal's event for that goal |
 
-A visit's referrer, campaign and entry and exit page are the visit's for every event in it, so a goal completed three pages after the landing counts for the landing's campaign. A visit still in progress (one with an event within the session timeout, 30 minutes by default) counts its events under their own referrer and campaign until it ends, so a past day's numbers are final once its last visits have ended.
+A visit's referrer, channel, campaign and entry and exit page are the visit's for every event in it, so a goal completed three pages after the landing counts for the landing's campaign. A visit still in progress (one with an event within the session timeout, 30 minutes by default) counts its events under their own referrer and campaign until it ends, so a past day's numbers are final once its last visits have ended.
+
+##### Channels and campaigns
+
+The campaign key `(utm_source, utm_medium, utm_campaign, utm_content)` is the one roomler-ai keys its sign-ups by (FR-102 §3b), and both ends apply the same table, so a key means the same thing in both places. The values are read through the table when a report runs, so data recorded before the table existed is read the same way.
+
+- **`utm_source`** is trimmed, lowercased, then its aliases are applied: `twitter` → `x`, `fb` → `facebook`, `yt` and `youtub` → `youtube`, `li` → `linkedin`, `ig` → `instagram`. **`utm_medium`** is trimmed and lowercased. A value the table does not know is **kept as itself** (lowercased): `Mastodon` reports as `mastodon`.
+- **`utm_source_group`** is the source if it is one of `youtube` `tiktok` `x` `linkedin` `facebook` `reddit` `hn` `devto` `hashnode` `medium` `github` `newsletter` `blog` `instagram`, and `other` if not. **`utm_medium_group`** is the medium if it is one of `video` `post` `carousel` `comment` `community` `bio` `article` `email`, and `other` if not. An unknown value is reported under `other`, never dropped. A visit without a campaign has an empty source and medium, which group under `other` too: filter `utm_source` `is_not` `""` to leave those visits out.
+- **`channel`** is read from the host of the visit's referrer. Each row of the table below matches its hosts and their subdomains, and the first row that matches wins:
+
+| Channel | Referrer hosts |
+|---------|----------------|
+| `ai_assistant` | `chatgpt.com`, `chat.openai.com`, `perplexity.ai`, `gemini.google.com`, `copilot.microsoft.com`, `claude.ai` |
+| `search` | `bing.com`, `duckduckgo.com`, `ecosia.org` |
+| `social` | `t.co`, `x.com`, `twitter.com`, `linkedin.com`, `lnkd.in`, `facebook.com`, `youtube.com`, `youtu.be`, `tiktok.com`, `reddit.com`, `instagram.com` |
+| `community` | `news.ycombinator.com`, `lobste.rs`, `dev.to`, `hashnode.com`, `medium.com` |
+| `code` | `github.com` |
+| `self` | The site's own hostnames (its domain, `www.` + the domain and its allowed hostnames) and their subdomains: navigation within the site, never a source |
+| `search` | Any other host with a `google` or `yandex` label before its last one: `google.com`, `www.google.co.uk`, `yandex.ru` (not `googleusercontent.com`) |
+| `direct` | No referrer |
+| `other` | Any other referrer |
+
+The host is compared in lowercase, without a port or trailing dots, so `l.facebook.com` is `social`, `www.google.co.uk` is `search`, and `roomler.ai.evil.example` is `other`. A campaign link's visit has a channel like any other visit: its referrer's.
 
 **Metrics:**
 
@@ -720,9 +766,9 @@ A visit's referrer, campaign and entry and exit page are the visit's for every e
 | `reads` | Pageviews whose page was visible for 30 seconds or more |
 | `median_read_s` | The median visible seconds of the pageviews that reported any |
 
-`visits`, `bounce_rate` and `visit_duration` are `null` unless every dimension is one a visit has (`date`, `entry_page`, `exit_page`, `referrer_source`, `referrer_host`, the `utm_*` five, `country`, `device_type`, `browser`, `os`); `bounce_rate` and `visit_duration` are also `null` in a row without visits. `median_read_s` is `null` in a row without engaged pageviews. A pageview's visible time is its longest engagement report ([tracker](tracker.md#engagement)).
+`visits`, `bounce_rate` and `visit_duration` are `null` unless every dimension is one a visit has (`date`, `entry_page`, `exit_page`, `referrer_source`, `referrer_host`, `channel`, the `utm_*` dimensions, `country`, `device_type`, `browser`, `os`); `bounce_rate` and `visit_duration` are also `null` in a row without visits. `median_read_s` is `null` in a row without engaged pageviews. A pageview's visible time is its longest engagement report ([tracker](tracker.md#engagement)).
 
-**Goals:** per row, the distinct visitors who completed the goal: an event of the goal's name for a custom-event goal, a pageview of the goal's path for a pageview goal.
+**Goals:** per row, in `goals`, the distinct visitors who completed the goal: an event of the goal's name for a custom-event goal, a pageview of the goal's path for a pageview goal. In `conversion_rates`, those visitors as a share of the row's `visitors`, from 0 to 1 (`null` in a row without visitors, and never above 1: a visit that crosses midnight UTC can complete a goal on a day without a pageview of its visitor's). `conversion_rates` is present when the request names goals.
 
 Rows are sorted by the first metric, descending, then by the dimensions, ascending.
 
@@ -734,7 +780,8 @@ Rows are sorted by the first metric, descending, then by the dimensions, ascendi
     {
       "dimensions": { "utm_source": "linkedin" },
       "metrics": { "visitors": 52, "pageviews": 265 },
-      "goals": { "signup": 1 }
+      "goals": { "signup": 1 },
+      "conversion_rates": { "signup": 0.019230769230769232 }
     }
   ],
   "meta": {

@@ -40,7 +40,7 @@ const CHART_COLORS = {
 export function useCharts() {
   function buildLineChartData(
     labels: string[],
-    datasets: { label: string; data: number[]; color?: string }[],
+    datasets: { label: string; data: number[]; color?: string; dashed?: boolean }[],
   ): ChartData<'line'> {
     const colors = [CHART_COLORS.primary, CHART_COLORS.secondary, CHART_COLORS.tertiary]
     const bgs = [CHART_COLORS.primaryBg, CHART_COLORS.secondaryBg, CHART_COLORS.tertiaryBg]
@@ -52,11 +52,13 @@ export function useCharts() {
         data: ds.data,
         borderColor: ds.color || colors[i % colors.length],
         backgroundColor: bgs[i % bgs.length],
-        fill: true,
+        // A comparison line is drawn dashed and unfilled.
+        fill: !ds.dashed,
+        borderDash: ds.dashed ? [6, 4] : [],
         tension: 0.4,
         pointRadius: 0,
         pointHoverRadius: 4,
-        borderWidth: 2,
+        borderWidth: ds.dashed ? 1.5 : 2,
       })),
     }
   }

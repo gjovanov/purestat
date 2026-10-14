@@ -5,6 +5,8 @@ pub mod seed;
 mod trust_test;
 #[cfg(test)]
 mod v1_test;
+#[cfg(test)]
+mod report_test;
 
 #[cfg(test)]
 mod auth_test;
