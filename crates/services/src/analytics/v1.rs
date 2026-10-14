@@ -10,9 +10,9 @@
 //!
 //! - **events**: `pageview` events give visitors and pageviews; a goal's
 //!   events give the visitors who completed it.
-//! - **reads**: `engagement` events, reduced to one engaged time per
-//!   pageview (the longest report carrying its `pv` id; a report without
-//!   one stands for its own pageview).
+//! - **reads**: `engagement` events, reduced to one engaged time and one
+//!   scroll depth per pageview (the longest and the deepest report carrying
+//!   its `pv` id; a report without one stands for its own pageview).
 //! - **sessions**: visits, bounces and visit duration, only when every
 //!   dimension is one a visit has.
 //!
@@ -39,8 +39,11 @@ pub const DEFAULT_LIMIT: u64 = 100;
 pub const MAX_LIMIT: u64 = 1000;
 /// The furthest `date_to` may be from `date_from`, in days.
 pub const MAX_SPAN_DAYS: i64 = 366;
-/// A pageview is a read once the page was visible for this many seconds.
+/// A pageview is a read once the page was read (visible and focused) for
+/// this many seconds...
 pub const READ_SECONDS: u32 = 30;
+/// ...or scrolled to this share of its height, in percent (FR-102 §3k).
+pub const READ_SCROLL_PERCENT: u32 = 75;
 
 /// The request body, as sent. Unknown fields are refused, so a misspelled
 /// one is an error rather than a silently unfiltered answer.
@@ -74,10 +77,12 @@ pub enum Metric {
     VisitDuration,
     Reads,
     MedianReadS,
+    ReadRate,
+    ScrollDepth,
 }
 
 impl Metric {
-    pub const ALL: [Metric; 7] = [
+    pub const ALL: [Metric; 9] = [
         Metric::Visitors,
         Metric::Visits,
         Metric::Pageviews,
@@ -85,6 +90,8 @@ impl Metric {
         Metric::VisitDuration,
         Metric::Reads,
         Metric::MedianReadS,
+        Metric::ReadRate,
+        Metric::ScrollDepth,
     ];
 
     pub fn parse(name: &str) -> Option<Self> {
@@ -100,6 +107,8 @@ impl Metric {
             Self::VisitDuration => "visit_duration",
             Self::Reads => "reads",
             Self::MedianReadS => "median_read_s",
+            Self::ReadRate => "read_rate",
+            Self::ScrollDepth => "scroll_depth",
         }
     }
 
@@ -108,11 +117,15 @@ impl Metric {
     }
 
     fn of_reads(self) -> bool {
-        matches!(self, Self::Reads | Self::MedianReadS)
+        matches!(
+            self,
+            Self::Reads | Self::MedianReadS | Self::ReadRate | Self::ScrollDepth
+        )
     }
 
+    /// Counted over pageview events: the read rate is reads per pageview.
     fn of_pageviews(self) -> bool {
-        matches!(self, Self::Visitors | Self::Pageviews)
+        matches!(self, Self::Visitors | Self::Pageviews | Self::ReadRate)
     }
 }
 
@@ -463,8 +476,8 @@ fn zeros(names: &[&str]) -> String {
     names
         .iter()
         .map(|n| {
-            if *n == "f_median" {
-                "toFloat64(0) AS f_median".to_string()
+            if matches!(*n, "f_median" | "f_depth") {
+                format!("toFloat64(0) AS {n}")
             } else {
                 format!("toUInt64(0) AS {n}")
             }
@@ -502,6 +515,8 @@ fn events_family(q: &V1Query, scopes: &[SiteScope], plan: &Plan) -> Sql {
         "f_reads",
         "f_engaged",
         "f_median",
+        "f_depth_n",
+        "f_depth",
     ]));
     sql.append(&from_events(scopes, &q.dates, plan));
     // Only the events some metric counts.
@@ -527,10 +542,14 @@ fn events_family(q: &V1Query, scopes: &[SiteScope], plan: &Plan) -> Sql {
     sql
 }
 
-/// Reads and the median engaged time per row, over engaged pageviews.
+/// Reads, the median engaged time and the median scroll depth per row, over
+/// the pageviews that reported engagement. A read is a pageview engaged for
+/// `READ_SECONDS` or more, or scrolled to `READ_SCROLL_PERCENT` or more; the
+/// medians are over the pageviews with a time, and with a depth.
 fn reads_family(q: &V1Query, scopes: &[SiteScope], plan: &Plan) -> Sql {
     let n = q.dimensions.len();
-    // Every engagement report: its dimensions, time, pageview id and seconds.
+    // Every engagement report: its dimensions, time, pageview id, seconds and
+    // depth (a page that does not scroll reports none: 0).
     let mut reports = Sql::new("SELECT ");
     for (i, d) in q.dimensions.iter().enumerate() {
         push_dimension(&mut reports, *d, Family::Reads, scopes, &format!("p{i}"));
@@ -538,7 +557,8 @@ fn reads_family(q: &V1Query, scopes: &[SiteScope], plan: &Plan) -> Sql {
     reports.push(
         "timestamp AS t, \
          if(has(prop_keys, 'pv'), prop_values[indexOf(prop_keys, 'pv')], '') AS pv, \
-         toFloat64OrZero(if(has(prop_keys, 'duration'), prop_values[indexOf(prop_keys, 'duration')], '')) AS dur",
+         toFloat64OrZero(if(has(prop_keys, 'duration'), prop_values[indexOf(prop_keys, 'duration')], '')) AS dur, \
+         toFloat64OrZero(if(has(prop_keys, 'scroll'), prop_values[indexOf(prop_keys, 'scroll')], '')) AS scr",
     );
     reports.append(&from_events(scopes, &q.dates, plan));
     reports.push(" AND event_name = 'engagement'");
@@ -553,24 +573,29 @@ fn reads_family(q: &V1Query, scopes: &[SiteScope], plan: &Plan) -> Sql {
     sql.push(", ");
     sql.push(&zeros(&["f_visits", "f_bounces", "f_duration"]));
     sql.push(&format!(
-        ", countIf(engaged >= {READ_SECONDS}) AS f_reads, count() AS f_engaged, \
-         quantileExactInclusive(0.5)(engaged) AS f_median FROM ("
+        ", countIf(engaged >= {READ_SECONDS} OR depth >= {READ_SCROLL_PERCENT}) AS f_reads, \
+         countIf(engaged > 0) AS f_engaged, \
+         if(f_engaged = 0, 0, quantileExactInclusiveIf(0.5)(engaged, engaged > 0)) AS f_median, \
+         countIf(depth > 0) AS f_depth_n, \
+         if(f_depth_n = 0, 0, quantileExactInclusiveIf(0.5)(least(depth, 100), depth > 0)) AS f_depth \
+         FROM ("
     ));
-    // A pageview with an id is engaged for its longest report...
+    // A pageview with an id is engaged for its longest report and as deep
+    // as its deepest...
     sql.push("SELECT ");
     for i in 0..n {
         sql.push(&format!("argMin(p{i}, t) AS d{i}, "));
     }
-    sql.push("max(dur) AS engaged FROM (");
+    sql.push("max(dur) AS engaged, max(scr) AS depth FROM (");
     sql.append(&reports);
-    sql.push(") WHERE pv != '' AND dur > 0 AND isFinite(dur) GROUP BY pv UNION ALL SELECT ");
+    sql.push(") WHERE pv != '' AND isFinite(dur) AND isFinite(scr) GROUP BY pv UNION ALL SELECT ");
     // ...and a report without one stands for its own pageview.
     for i in 0..n {
         sql.push(&format!("p{i} AS d{i}, "));
     }
-    sql.push("dur AS engaged FROM (");
+    sql.push("dur AS engaged, scr AS depth FROM (");
     sql.append(&reports);
-    sql.push(") WHERE pv = '' AND dur > 0 AND isFinite(dur))");
+    sql.push(") WHERE pv = '' AND isFinite(dur) AND isFinite(scr)) WHERE engaged > 0 OR depth > 0");
     push_group_by(&mut sql, n);
     sql
 }
@@ -592,7 +617,13 @@ fn sessions_family(q: &V1Query, scopes: &[SiteScope]) -> Sql {
         ", count() AS f_visits, countIf(is_bounce = 1) AS f_bounces, \
          sum(toUInt64(duration)) AS f_duration, ",
     );
-    sql.push(&zeros(&["f_reads", "f_engaged", "f_median"]));
+    sql.push(&zeros(&[
+        "f_reads",
+        "f_engaged",
+        "f_median",
+        "f_depth_n",
+        "f_depth",
+    ]));
     sql.push(" FROM sessions WHERE ");
     sql.append(&sessions_where(scopes, &q.dates, &q.filters));
     push_group_by(&mut sql, q.dimensions.len());
@@ -606,6 +637,8 @@ fn sort_expr(metric: Metric, plan: &Plan) -> Option<&'static str> {
         Metric::Pageviews => Some("pageviews"),
         Metric::Reads => Some("reads"),
         Metric::MedianReadS => Some("if(engaged_n = 0, NULL, median_read)"),
+        Metric::ReadRate => Some("if(pageviews = 0, NULL, least(reads / pageviews, 1))"),
+        Metric::ScrollDepth => Some("if(depth_n = 0, NULL, median_depth)"),
         Metric::Visits if plan.sessions => Some("visits"),
         Metric::BounceRate if plan.sessions => Some("if(visits = 0, NULL, bounces / visits)"),
         Metric::VisitDuration if plan.sessions => {
@@ -635,7 +668,8 @@ fn build(q: &V1Query, scopes: &[SiteScope]) -> (Sql, Plan) {
     }
     sql.push(
         ", sum(f_visits) AS visits, sum(f_bounces) AS bounces, sum(f_duration) AS duration_sum, \
-         sum(f_reads) AS reads, sum(f_engaged) AS engaged_n, max(f_median) AS median_read FROM (",
+         sum(f_reads) AS reads, sum(f_engaged) AS engaged_n, max(f_median) AS median_read, \
+         sum(f_depth_n) AS depth_n, max(f_depth) AS median_depth FROM (",
     );
     let mut families = Vec::new();
     if plan.events {
@@ -681,6 +715,8 @@ struct RawRow {
     reads: u64,
     engaged_n: u64,
     median_read: f64,
+    depth_n: u64,
+    median_depth: f64,
 }
 
 fn shape(q: &V1Query, plan: &Plan, raw: RawRow) -> V1Row {
@@ -711,6 +747,10 @@ fn shape(q: &V1Query, plan: &Plan, raw: RawRow) -> V1Row {
                 Metric::Reads => Value::from(raw.reads),
                 Metric::MedianReadS if raw.engaged_n > 0 => Value::from(raw.median_read),
                 Metric::MedianReadS => Value::Null,
+                // A report can land on the day after its pageview's: capped.
+                Metric::ReadRate => share(raw.reads, raw.pageviews),
+                Metric::ScrollDepth if raw.depth_n > 0 => Value::from(raw.median_depth),
+                Metric::ScrollDepth => Value::Null,
             };
             (m.name().to_string(), value)
         })
@@ -735,9 +775,9 @@ fn shape(q: &V1Query, plan: &Plan, raw: RawRow) -> V1Row {
     }
 }
 
-/// `part / whole` from 0 to 1, or `null` without a whole. A visitor whose
-/// visit crossed midnight UTC can complete a goal on a day without a
-/// pageview of theirs, so a share is capped at 1.
+/// `part / whole` from 0 to 1, or `null` without a whole. Capped at 1: a
+/// goal completed, or an engagement report sent, just after midnight UTC
+/// lands on a day without the pageview it belongs to.
 fn share(part: u64, whole: u64) -> Value {
     if whole == 0 {
         Value::Null
@@ -1019,7 +1059,7 @@ mod tests {
         let q = parse(serde_json::json!({
             "date_from": "2026-09-01", "date_to": "2026-09-30",
             "dimensions": ["utm_source"],
-            "metrics": ["visitors", "visits", "bounce_rate", "visit_duration", "median_read_s"],
+            "metrics": ["visitors", "visits", "bounce_rate", "visit_duration", "median_read_s", "read_rate", "scroll_depth"],
             "goals": ["signup"],
         }))
         .unwrap();
@@ -1035,16 +1075,21 @@ mod tests {
                 visits: 4,
                 bounces: 1,
                 duration_sum: 200,
-                reads: 0,
+                reads: 3,
                 engaged_n: 0,
                 median_read: f64::NAN,
+                depth_n: 0,
+                median_depth: f64::NAN,
             },
         );
         assert_eq!(
             serde_json::to_value(&row).unwrap(),
             serde_json::json!({
                 "dimensions": { "utm_source": "linkedin" },
-                "metrics": { "visitors": 3, "visits": 4, "bounce_rate": 0.25, "visit_duration": 50.0, "median_read_s": null },
+                "metrics": {
+                    "visitors": 3, "visits": 4, "bounce_rate": 0.25, "visit_duration": 50.0,
+                    "median_read_s": null, "read_rate": 1.0 / 3.0, "scroll_depth": null,
+                },
                 "goals": { "signup": 1 },
                 "conversion_rates": { "signup": 1.0 / 3.0 },
             })
@@ -1063,7 +1108,86 @@ mod tests {
             reads: 0,
             engaged_n: 0,
             median_read: 0.0,
+            depth_n: 0,
+            median_depth: 0.0,
         }
+    }
+
+    #[test]
+    fn a_read_is_thirty_seconds_or_three_quarters_of_the_page() {
+        let (sql, plan) = sql_of(serde_json::json!({
+            "date_from": "2026-09-01", "date_to": "2026-09-30",
+            "dimensions": ["path"], "metrics": ["read_rate", "scroll_depth"],
+        }));
+        assert!(
+            plan.reads && plan.pageviews,
+            "a read rate is reads per pageview"
+        );
+        assert!(
+            sql.text
+                .contains("countIf(engaged >= 30 OR depth >= 75) AS f_reads"),
+            "{}",
+            sql.text
+        );
+        // The medians are over the pageviews that reported a time, and a depth.
+        assert!(
+            sql.text
+                .contains("quantileExactInclusiveIf(0.5)(engaged, engaged > 0)"),
+            "{}",
+            sql.text
+        );
+        assert!(
+            sql.text
+                .contains("quantileExactInclusiveIf(0.5)(least(depth, 100), depth > 0)"),
+            "{}",
+            sql.text
+        );
+        assert!(
+            sql.text.contains(
+                "ORDER BY if(pageviews = 0, NULL, least(reads / pageviews, 1)) DESC NULLS LAST"
+            ),
+            "{}",
+            sql.text
+        );
+        assert_eq!(sql.text.matches('?').count(), sql.binds.len());
+    }
+
+    #[test]
+    fn the_read_rate_and_the_depth_are_null_without_their_counts() {
+        let q = parse(serde_json::json!({
+            "date_from": "2026-09-01", "date_to": "2026-09-30",
+            "metrics": ["read_rate", "scroll_depth"],
+        }))
+        .unwrap();
+        let plan = Plan::of(&q);
+        let row = shape(&q, &plan, raw(0, vec![]));
+        assert_eq!(
+            serde_json::to_value(&row.metrics).unwrap(),
+            serde_json::json!({ "read_rate": null, "scroll_depth": null })
+        );
+        let mut read = raw(4, vec![]);
+        read.reads = 5; // a report after midnight: capped
+        read.depth_n = 2;
+        read.median_depth = 62.5;
+        let row = shape(&q, &plan, read);
+        assert_eq!(
+            serde_json::to_value(&row.metrics).unwrap(),
+            serde_json::json!({ "read_rate": 1.0, "scroll_depth": 62.5 })
+        );
+        assert_eq!(
+            Metric::ALL.map(|m| m.name()),
+            [
+                "visitors",
+                "visits",
+                "pageviews",
+                "bounce_rate",
+                "visit_duration",
+                "reads",
+                "median_read_s",
+                "read_rate",
+                "scroll_depth"
+            ]
+        );
     }
 
     #[test]

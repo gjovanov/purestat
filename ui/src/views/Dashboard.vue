@@ -142,8 +142,39 @@ const CAMPAIGN_TABS: BreakdownTab[] = [
   },
 ]
 
+// Engagement per page (FR-102 §3k): a read is 30 s of visible, focused
+// time or 75 % of the page scrolled; read time is a median, never a mean.
+const PAGE_ENGAGEMENT = [
+  ...VISITORS,
+  { key: 'pageviews', label: 'Pageviews' },
+  {
+    key: 'read_rate',
+    label: 'Read rate',
+    title: 'Share of pageviews read: 30 s or more of visible, focused time, or 75% of the page scrolled',
+    format: 'percent' as const,
+  },
+  {
+    key: 'median_read_s',
+    label: 'Read time',
+    title: 'Median visible, focused time of the pageviews that reported one',
+    format: 'duration' as const,
+  },
+  {
+    key: 'scroll_depth',
+    label: 'Scroll',
+    title: 'Median of how far down the page its pageviews got (pages that scroll)',
+    format: 'scroll' as const,
+  },
+]
+
 const PAGE_TABS: BreakdownTab[] = [
-  { key: 'page', label: 'Pages', dimension: 'path', metrics: ['visitors', 'pageviews'], columns: [...VISITORS, { key: 'pageviews', label: 'Pageviews' }] },
+  {
+    key: 'page',
+    label: 'Pages',
+    dimension: 'path',
+    metrics: ['visitors', 'pageviews', 'read_rate', 'median_read_s', 'scroll_depth'],
+    columns: PAGE_ENGAGEMENT,
+  },
   { key: 'entry', label: 'Entry pages', dimension: 'entry_page', metrics: ['visitors', 'visits'], columns: VISITORS_AND_VISITS },
   { key: 'exit', label: 'Exit pages', dimension: 'exit_page', metrics: ['visitors', 'visits'], columns: VISITORS_AND_VISITS },
 ]

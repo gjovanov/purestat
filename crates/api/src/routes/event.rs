@@ -111,14 +111,7 @@ pub async fn ingest(
     let referrer_source = parse_referrer_source(&referrer);
 
     // Parse props
-    let (prop_keys, prop_values) = match &body.props {
-        Some(props) => {
-            let keys: Vec<String> = props.keys().cloned().collect();
-            let values: Vec<String> = props.values().cloned().collect();
-            (keys, values)
-        }
-        None => (vec![], vec![]),
-    };
+    let (prop_keys, prop_values) = event_props(&body.name, body.props.as_ref());
 
     // Parse device info from user agent (simplified)
     let (browser, os, device_type) = parse_user_agent(&user_agent);
@@ -281,6 +274,29 @@ fn strip_query_and_fragment(raw: &str) -> &str {
     raw.split(&['?', '#'][..]).next().unwrap_or("")
 }
 
+/// The events the tracker sends for a click on a link (`data-outbound-links`,
+/// `data-file-downloads`), whatever sent them.
+const LINK_EVENTS: &[&str] = &["outbound-click", "file-download"];
+
+/// An event's properties as stored. A link event's `url` is kept as far as
+/// its path, like a referrer: the tracker already sends it so, and an event
+/// sent by other means must not store a query or credentials either.
+fn event_props(name: &str, props: Option<&HashMap<String, String>>) -> (Vec<String>, Vec<String>) {
+    let link = LINK_EVENTS.contains(&name);
+    props
+        .into_iter()
+        .flatten()
+        .map(|(key, value)| {
+            let value = if link && key == "url" {
+                clean_referrer(value)
+            } else {
+                value.clone()
+            };
+            (key.clone(), value)
+        })
+        .unzip()
+}
+
 fn parse_referrer_source(referrer: &str) -> String {
     if referrer.is_empty() {
         return "Direct".to_string();
@@ -412,6 +428,34 @@ mod tests {
         );
         assert_eq!(clean_referrer(""), "");
         assert_eq!(parse_referrer_source(&clean_referrer("")), "Direct");
+    }
+
+    #[test]
+    fn a_link_events_address_is_kept_as_far_as_its_path() {
+        let props: HashMap<String, String> = [
+            (
+                "url",
+                "https://user:pw@github.com/gjovanov?token=secret#readme",
+            ),
+            ("plan", "pro?x=1"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        for name in ["outbound-click", "file-download"] {
+            let (keys, values) = event_props(name, Some(&props));
+            let stored: HashMap<String, String> = keys.into_iter().zip(values).collect();
+            assert_eq!(stored["url"], "https://github.com/gjovanov", "{name}");
+            assert_eq!(stored["plan"], "pro?x=1", "only a link event's url: {name}");
+        }
+        // Any other event's properties are the site's own, kept as sent.
+        let (keys, values) = event_props("signup", Some(&props));
+        let stored: HashMap<String, String> = keys.into_iter().zip(values).collect();
+        assert_eq!(
+            stored["url"],
+            "https://user:pw@github.com/gjovanov?token=secret#readme"
+        );
+        assert_eq!(event_props("pageview", None), (vec![], vec![]));
     }
 
     #[test]

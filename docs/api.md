@@ -231,6 +231,8 @@ An event is dropped, and still answered `202`, when:
 
 The visitor hash is computed server-side from the client IP, User-Agent, domain, and a daily-rotating salt. The client IP is read exactly as the rate limiter reads it (the right-most `X-Forwarded-For` entry that is not a proxy hop), so what a client writes into the header does not change who it is. The raw IP address is never stored.
 
+The page address and the referrer are stored without their query string, fragment and credentials, and so is the `url` property of a link event (`outbound-click`, `file-download`; see [the tracker](tracker.md#outbound-links-and-file-downloads)), whatever sent it.
+
 ---
 
 ## Authenticated Endpoints
@@ -763,10 +765,12 @@ The host is compared in lowercase, without a port or trailing dots, so `l.facebo
 | `visits` | Visits |
 | `bounce_rate` | The share of visits with one pageview, from 0 to 1 |
 | `visit_duration` | The mean length of a visit, in seconds |
-| `reads` | Pageviews whose page was visible for 30 seconds or more |
-| `median_read_s` | The median visible seconds of the pageviews that reported any |
+| `reads` | Pageviews read: read (visible and focused) for 30 seconds or more, or scrolled to 75 % of the page or further |
+| `read_rate` | `reads` / `pageviews`, from 0 to 1 (capped at 1: a report sent just after midnight UTC lands on the day after its pageview) |
+| `median_read_s` | The median read seconds of the pageviews that reported any. A median, never a mean of raw durations |
+| `scroll_depth` | The median depth, in percent of the page's height, of the pageviews that reported one (pages that scroll) |
 
-`visits`, `bounce_rate` and `visit_duration` are `null` unless every dimension is one a visit has (`date`, `entry_page`, `exit_page`, `referrer_source`, `referrer_host`, `channel`, the `utm_*` dimensions, `country`, `device_type`, `browser`, `os`); `bounce_rate` and `visit_duration` are also `null` in a row without visits. `median_read_s` is `null` in a row without engaged pageviews. A pageview's visible time is its longest engagement report ([tracker](tracker.md#engagement)).
+`visits`, `bounce_rate` and `visit_duration` are `null` unless every dimension is one a visit has (`date`, `entry_page`, `exit_page`, `referrer_source`, `referrer_host`, `channel`, the `utm_*` dimensions, `country`, `device_type`, `browser`, `os`); `bounce_rate` and `visit_duration` are also `null` in a row without visits. `read_rate` is `null` in a row without pageviews, `median_read_s` in a row without read time, `scroll_depth` in a row without a depth. A pageview's read time is its longest engagement report and its depth its deepest ([tracker](tracker.md#engagement)); reports from before the tracker measured the focus and the depth count visible time only and carry no depth.
 
 **Goals:** per row, in `goals`, the distinct visitors who completed the goal: an event of the goal's name for a custom-event goal, a pageview of the goal's path for a pageview goal. In `conversion_rates`, those visitors as a share of the row's `visitors`, from 0 to 1 (`null` in a row without visitors, and never above 1: a visit that crosses midnight UTC can complete a goal on a day without a pageview of its visitor's). `conversion_rates` is present when the request names goals.
 
