@@ -112,7 +112,7 @@ A user configures conversion goals to track specific user actions on their websi
 
    ```
    POST /api/org/:orgId/site/:siteId/goal
-   { "goal_type": "page", "page_path": "/thank-you" }
+   { "goal_type": "pageview", "name": "thank-you", "page_path": "/thank-you" }
    ```
 
 3. **Create an event goal**
@@ -121,7 +121,7 @@ A user configures conversion goals to track specific user actions on their websi
 
    ```
    POST /api/org/:orgId/site/:siteId/goal
-   { "goal_type": "event", "event_name": "signup" }
+   { "goal_type": "custom_event", "name": "signup", "event_name": "signup" }
    ```
 
 4. **Add custom event tracking to the website**
@@ -147,12 +147,21 @@ A user configures conversion goals to track specific user actions on their websi
 
 6. **View conversion data**
 
-   The goals page shows each goal with its conversion count and conversion rate. The dashboard's GoalsTable component also displays a summary. Use the stats API to query conversion data programmatically:
+   The site's dashboard has a Goals card: per goal, the unique visitors who completed it (conversions), their share of all visitors (conversion rate), and how both changed against the previous period. To see which campaigns convert, pick the goal in the Campaigns card: each source, medium or campaign then shows its conversions and conversion rate. Filters apply to both, so filtering by a channel or a country shows that channel's or that country's conversions.
 
+   Query the same numbers programmatically with [`POST /api/v1/query`](api.md#post-apiv1query) and an API key:
+
+   ```json
+   {
+     "date_from": "2026-10-01",
+     "date_to": "2026-10-14",
+     "dimensions": ["utm_source"],
+     "metrics": ["visitors"],
+     "goals": ["signup"]
+   }
    ```
-   POST /api/org/:orgId/site/:siteId/stats
-   { "period": "30d", "metrics": ["conversions", "conversion_rate"], "dimensions": ["event_name"] }
-   ```
+
+   Each row carries `goals.signup` (converting visitors) and `conversion_rates.signup` (from 0 to 1).
 
 ---
 

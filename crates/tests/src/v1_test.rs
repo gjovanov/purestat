@@ -105,6 +105,7 @@ async fn test_v1_totals_without_a_dimension() {
                 "visit_duration": 105.0, "reads": 3, "median_read_s": 40.0,
             },
             "goals": { "signup": 1, "thanks": 1 },
+            "conversion_rates": { "signup": 0.25, "thanks": 0.25 },
         }]),
         "{answer}"
     );
@@ -134,13 +135,14 @@ async fn test_v1_by_campaign_counts_a_visit_for_its_landing_campaign() {
     .await;
     // The signup and the /pricing pageview carry no campaign of their own;
     // they are the linkedin visit's. The dev server's and the fork's linkedin
-    // traffic is not the site's.
+    // traffic is not the site's. `twitter` is reported as the taxonomy
+    // spells it, `x` (FR-102 §3b).
     assert_eq!(
         answer["rows"],
         json!([
-            { "dimensions": { "utm_source": "linkedin" }, "metrics": { "visitors": 2, "pageviews": 3, "visits": 2 }, "goals": { "signup": 1 } },
-            { "dimensions": { "utm_source": "" }, "metrics": { "visitors": 1, "pageviews": 1, "visits": 1 }, "goals": { "signup": 0 } },
-            { "dimensions": { "utm_source": "twitter" }, "metrics": { "visitors": 1, "pageviews": 2, "visits": 1 }, "goals": { "signup": 0 } },
+            { "dimensions": { "utm_source": "linkedin" }, "metrics": { "visitors": 2, "pageviews": 3, "visits": 2 }, "goals": { "signup": 1 }, "conversion_rates": { "signup": 0.5 } },
+            { "dimensions": { "utm_source": "" }, "metrics": { "visitors": 1, "pageviews": 1, "visits": 1 }, "goals": { "signup": 0 }, "conversion_rates": { "signup": 0.0 } },
+            { "dimensions": { "utm_source": "x" }, "metrics": { "visitors": 1, "pageviews": 2, "visits": 1 }, "goals": { "signup": 0 }, "conversion_rates": { "signup": 0.0 } },
         ]),
         "{answer}"
     );

@@ -1,3 +1,4 @@
+pub mod campaign;
 pub mod geo;
 pub mod ingest;
 pub mod privacy;

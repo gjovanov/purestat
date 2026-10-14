@@ -29,10 +29,16 @@ ui/
     plugins/         # Vuetify, i18n, router setup
     router/          # Route definitions
     stores/          # Pinia stores
+    utils/           # Pure helpers: periods and their comparison, number formats, dimension labels
     views/           # Page-level view components
     App.vue          # Root component
     main.ts          # Application entry point
+  tests/
+    unit/            # bun tests of src/utils (bun run test:unit)
+    e2e/             # Playwright, against a real account
 ```
+
+`bun run build` type-checks (`vue-tsc --noEmit`) and builds; `bun run test:unit` runs the unit tests.
 
 ## Routes
 
@@ -96,20 +102,20 @@ Key actions: `fetchSites()`, `createSite()`, `updateSite()`, `deleteSite()`.
 
 ### stats
 
-Analytics data for the dashboard.
+Analytics data for the dashboard. Every number comes from the report routes (`POST /api/org/:orgId/site/:siteId/query`, or `/api/org/:orgId/analytics/query?site_ids=…` for several sites), which run the v1 query of [the API](api.md#post-apiv1query): the dashboard shows what an API key reads.
 
 | State | Description |
 |-------|-------------|
-| `metrics` | Aggregate metric values (visitors, pageviews, bounce rate, avg duration) |
-| `timeseries` | Time-bucketed data for the main chart |
-| `sources` | Top referral sources |
-| `pages` | Top pages |
-| `locations` | Visitor locations (country, region, city) |
-| `devices` | Browser, OS, and device type breakdowns |
-| `period` | Currently selected date period |
-| `filters` | Active filters |
+| `orgId`, `siteId`, `siteIds` | What the dashboard reads: one site, or several sites of the org |
+| `dateRange`, `dateFrom`, `dateTo` | The selected preset (`1d`, `7d`, `30d`, `6mo`, `12mo`) or custom range |
+| `period`, `previous` | The period on screen (UTC days, today included) and the one before it, of the same length |
+| `filters` | Active filters, applied to every report |
+| `overview`, `previousOverview` | Visitors, visits, pageviews, bounce rate and visit duration of both periods |
+| `timeseries`, `previousTimeseries` | Visitors and pageviews per day, with 0 for a day without any |
+| `goalResults`, `previousGoalResults` | Per goal name, its converting visitors and conversion rate |
+| `version` | Bumped on every reload, so each report card refetches |
 
-Key actions: `fetchStats()`, `setPeriod()`, `setFilter()`, `clearFilters()`.
+Key actions: `fetchDashboard()`, `fetchMultiSiteDashboard()`, `runReport()`, `setDateRange()`, `setFilter()` (replaces a filter on the same dimension), `addFilter()`, `removeFilter()`, `clearFilters()`.
 
 ### realtime
 
@@ -131,9 +137,8 @@ Goal and conversion tracking.
 | State | Description |
 |-------|-------------|
 | `goals` | List of configured goals for the current site |
-| `conversions` | Conversion data per goal |
 
-Key actions: `fetchGoals()`, `createGoal()`, `deleteGoal()`, `fetchConversions()`.
+Key actions: `fetchGoals()`, `createGoal()`, `deleteGoal()`. The conversions themselves are part of the dashboard's report (`stats.goalResults`).
 
 ### billing
 
@@ -166,22 +171,34 @@ AppLayout
 
 ### Dashboard Components
 
-The main analytics dashboard (`/org/:orgId/site/:siteId`) is composed of the following components:
+The analytics dashboard, for one site (`/org/:orgId/site/:siteId`) or for the sites selected in the app bar (`/org/:orgId/dashboard`), is composed of the following components:
 
 ```
 Dashboard
-  DatePicker              # Period selection (today, 7d, 30d, custom)
-  FilterBar               # Active filter chips with clear button
+  DatePicker              # Period selection (today, 7d, 30d, 6m, 12m)
   RealtimeBadge           # Live visitor count indicator
-  MetricCards             # Top-level metrics (visitors, pageviews, bounce rate, duration)
-  TimeseriesChart         # Main line/area chart (Chart.js via vue-chartjs)
-  TopChart                # Bar chart for top N items
-  SourcesTable            # Referral sources breakdown
-  PagesTable              # Top pages breakdown
-  LocationsMap            # Visitor map by country
-  DevicesTable            # Browser, OS, device type tables
-  GoalsTable              # Goal conversions summary
+  FilterBar               # "Filter" button and the active filter chips
+    FilterDialog          # Dimension, operator and value (with the period's values offered)
+  MetricCards             # Visitors, visits, pageviews, bounce rate, visit duration, each with its change
+  TopChart                # Visitors and pageviews per day; the previous period's visitors dashed
+  BreakdownCard           # One card per report, with tabs, "Show more" and drill-down:
+                          #   Sources:   Channels / Sources / Referrers
+                          #   Campaigns: Source / Medium / Campaign / Content / Term / Source group / Medium group
+                          #   Pages:     Pages / Entry pages / Exit pages
+                          #   Locations: Countries
+                          #   Devices:   Devices / Browsers / Operating systems
+  GoalsTable              # Per goal: conversions, conversion rate and their change (one site only)
 ```
+
+#### What the dashboard does
+
+- **Period comparison.** Every metric card, and every goal, shows its change against the previous period of the same length: the day before for Today, the 7 days before for 7D, and so on. Counts and durations change in percent, rates (bounce rate, conversion rate) in percentage points. The chart draws the previous period's visitors as a dashed line, day against day. Days are UTC days, as the API counts them, and the current period includes today so far.
+- **Filters.** The Filter button adds a condition on any dimension (page, entry and exit page, hostname, channel, source, referrer, the five UTM parameters, country, device, browser, OS) with `is`, `is not`, `contains` or `starts with`. Every card, chart and number on the page is filtered. A filter on a visit's attribute (its channel, referrer or campaign) selects whole visits, so the pages of a LinkedIn visit count for LinkedIn even after its landing page.
+- **Drill-down.** A click on a row filters the dashboard by that value and opens the next tab: a channel opens its sources, a source its referrers, a UTM source its mediums, then campaigns, content and terms; a device type opens its browsers, then operating systems. Each new click on a dimension replaces that dimension's filter.
+- **More than 10 rows.** A card shows its top 10 rows; "Show more" adds 25 at a time while there are more.
+- **Channels** group visits by their referrer, by the table in [the API reference](api.md#channels-and-campaigns): search, AI assistants, social, community, code, own site, direct and other. The grouping is done by the server, so the dashboard and the API agree.
+- **Campaigns** list the visits that carry a campaign. Sources and mediums are normalised (`YouTube`, `youtub` and `yt` are `youtube`; `twitter` is `x`); a source the table does not know is listed as itself, and under `other` in the Source group tab. With a goal selected in the card, each row also shows the goal's conversions and conversion rate.
+- **Goals** report the unique visitors who completed each goal (`Conversions`), their share of all visitors (`CR`), and both changes.
 
 ### Common Components
 

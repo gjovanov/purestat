@@ -9,6 +9,7 @@ pub mod member;
 pub mod oauth;
 pub mod org;
 pub mod realtime;
+pub mod report;
 pub mod site;
 pub mod stats;
 pub mod stripe;

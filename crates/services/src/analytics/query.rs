@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::scope::SiteScope;
-use super::sql::{DateRange, Dimension, Filter, Operator, Sql, events_where, sessions_where};
+use super::sql::{
+    DateRange, Dimension, Filter, Operator, Sql, Table, events_where, sessions_where,
+};
 
 #[derive(Debug, Error)]
 pub enum QueryError {
@@ -219,19 +221,19 @@ impl QueryService {
         limit: u64,
         offset: u64,
     ) -> Sql {
-        let mut sql;
-        if let Some(expr) = dimension.events_expr() {
-            sql = Sql::new(format!(
-                "SELECT {expr} AS dimension, uniq(visitor_hash) AS visitors, count() AS pageviews FROM events WHERE "
-            ));
+        let mut sql = Sql::new("SELECT ");
+        if let Some(expr) = dimension.expr(Table::Events, scopes) {
+            sql.append(&expr).push(
+                " AS dimension, uniq(visitor_hash) AS visitors, count() AS pageviews FROM events WHERE ",
+            );
             sql.append(&events_where(scopes, dates, filters, true));
         } else {
             let expr = dimension
-                .sessions_expr()
+                .expr(Table::Sessions, scopes)
                 .expect("a dimension lives on at least one table");
-            sql = Sql::new(format!(
-                "SELECT {expr} AS dimension, uniq(visitor_hash) AS visitors, sum(pageviews) AS pageview_total FROM sessions WHERE "
-            ));
+            sql.append(&expr).push(
+                " AS dimension, uniq(visitor_hash) AS visitors, sum(pageviews) AS pageview_total FROM sessions WHERE ",
+            );
             sql.append(&sessions_where(scopes, dates, filters));
         }
         sql.push(&format!(

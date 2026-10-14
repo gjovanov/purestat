@@ -93,6 +93,7 @@ pub fn build_router(state: AppState) -> Router {
     // Stats routes
     let stats_routes = Router::new()
         .route("/stats", post(routes::stats::query))
+        .route("/query", post(routes::report::site_query))
         .route("/realtime", get(routes::realtime::current_visitors))
         .route("/export", get(routes::export::export_csv));
 
@@ -106,6 +107,7 @@ pub fn build_router(state: AppState) -> Router {
     // Org-level analytics routes (multi-site)
     let org_analytics_routes = Router::new()
         .route("/stats", post(routes::stats::query_multi))
+        .route("/query", post(routes::report::org_query))
         .route("/realtime", get(routes::realtime::current_visitors_multi));
 
     // Compose API

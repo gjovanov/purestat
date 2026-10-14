@@ -84,6 +84,17 @@ cargo test -p purestat-tests test_name
 RUST_LOG=debug cargo test -p purestat-tests -- --nocapture
 ```
 
+## Running UI Unit Tests
+
+The dashboard's pure helpers (periods and their comparison, number formats, dimension labels in `ui/src/utils/`) have bun tests:
+
+```bash
+cd ui
+bun run test:unit
+```
+
+`bun run build` type-checks the SPA (`vue-tsc --noEmit`) before it builds.
+
 ## Running E2E Tests
 
 ### Prerequisites

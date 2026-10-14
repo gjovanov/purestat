@@ -31,7 +31,9 @@
 | Privacy-first | Cookie-free tracking via daily-rotating SHA-256 visitor hashes |
 | Lightweight tracker | < 1KB gzipped JS snippet, SPA-aware |
 | Real-time dashboard | Live visitor count and activity stream |
-| Goals & conversions | Track custom events with properties and revenue |
+| Goals & conversions | Per goal: converting visitors and conversion rate, overall and per campaign |
+| Campaigns & channels | UTM report with drill-down; visits grouped into search, AI assistants, social, community, code, direct and other |
+| Filters & comparison | Filter the whole dashboard by any dimension; every number compared with the previous period |
 | Multi-tenant | Organizations with owner/admin/viewer roles |
 | Stripe billing | Free, Pro, and Business plans with usage limits |
 | OAuth login | Google, GitHub, Facebook, LinkedIn, Microsoft |
