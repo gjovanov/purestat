@@ -52,9 +52,11 @@ Requests are limited per client IP address and endpoint group, over a 60-second 
 | Auth | `/api/auth/*` except `/api/auth/providers`, and `/api/oauth/*` | 10 |
 | Tracker (event ingest) | `/api/event` | 1000 |
 | Stats / Export | every path ending in `/stats` or `/export`, and `/api/v1/*` | 120 |
-| API | every other `/api/*` path, including `/api/auth/providers` | 300 |
+| API | every other `/api/*` path | 300 |
 
 `/api/health` and `/api/stripe/webhook` are not limited. The limits are configurable: see [Deployment](deployment.md#rate-limiting).
+
+`GET /api/auth/providers` counts in the API group, not Auth: every sign-in page load reads it, and it must not spend the budget of the sign-in itself.
 
 Every limited response says what the limit is and how much of it is left:
 
