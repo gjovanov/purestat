@@ -2,6 +2,7 @@ pub mod campaign;
 pub mod funnel;
 pub mod geo;
 pub mod ingest;
+pub mod journey;
 pub mod privacy;
 pub mod query;
 pub mod realtime;

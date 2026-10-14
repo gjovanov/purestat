@@ -13,6 +13,7 @@ The Purestat frontend is a Vue 3 single-page application that provides the dashb
 | vue-i18n | Latest | Internationalization |
 | Chart.js | Latest | Chart rendering |
 | vue-chartjs | Latest | Vue bindings for Chart.js |
+| chartjs-chart-sankey | 0.19.1 (pinned) | The Sankey chart type for Chart.js, for journeys |
 
 ## Project Structure
 
@@ -56,6 +57,7 @@ ui/
 | `/org/:orgId/site/:siteId/funnels` | Funnels | Yes | Funnel definitions and their report ([Funnels](funnels.md)) |
 | `/org/:orgId/site/:siteId/settings` | SiteSettings | Yes | Site configuration |
 | `/org/:orgId/site/:siteId/api-keys` | ApiKeys | Yes | API key management |
+| `/org/:orgId/site/:siteId/journeys` | Journeys | Yes | Paths from an entry page and into a goal, as a Sankey ([Journeys](journeys.md)) |
 | `/org/:orgId/members` | Members | Yes | Organization member management |
 | `/org/:orgId/billing` | Billing | Yes | Plan selection and Stripe portal |
 | `/org/:orgId/settings` | OrgSettings | Yes | Organization settings |
@@ -168,6 +170,10 @@ Stripe billing and plan management.
 | `currentPlan` | Organization's current plan |
 
 Key actions: `fetchPlans()`, `createCheckout()`, `openPortal()`.
+
+### journeys
+
+No state: `fetchJourney()` reads a journey, `fetchEntryPages()` the site's most common entry pages to pick from. The Journeys view keeps the mode, the anchor and the bounds, and draws the tree with `components/journeys/JourneySankey.vue` (chartjs-chart-sankey).
 
 ## Component Tree
 

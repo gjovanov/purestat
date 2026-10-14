@@ -109,7 +109,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/stats", post(routes::stats::query))
         .route("/query", post(routes::report::site_query))
         .route("/realtime", get(routes::realtime::current_visitors))
-        .route("/export", get(routes::export::export_csv));
+        .route("/export", get(routes::export::export_csv))
+        .route("/journey/stats", post(routes::journey::stats));
 
     // Stripe routes
     let stripe_routes = Router::new()

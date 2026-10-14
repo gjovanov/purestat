@@ -846,6 +846,70 @@ time,event_name,path,referrer,referrer_source,country,browser,os,device_type,utm
 
 A field that holds a comma, a quote or a line break is quoted (RFC 4180).
 
+### Journeys
+
+#### POST /api/org/{org_id}/site/{site_id}/journey/stats
+
+The paths visitors took from an entry page, or into a goal, as the nodes and links of a Sankey diagram; [Journeys](journeys.md) explains them. Members can read them. It is in the Stats rate-limit group, and it reads the site through the same hostnames as every other analytics endpoint.
+
+**k-anonymity:** a path that fewer than 5 distinct visitors followed is never returned. The query drops it, and its visits are counted in an `other` node. Nothing in the request changes the threshold.
+
+**Request:**
+
+```json
+{
+  "date_from": "2026-10-01",
+  "date_to": "2026-10-13",
+  "entry_page": "/blog/my-post",
+  "depth": 3,
+  "width": 5
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `date_from`, `date_to` | Yes | UTC days, `YYYY-MM-DD`, inclusive, at most 366 days apart. A visit counts on the day it started |
+| `entry_page` | One of the two | The visits that entered the site on this exact path, and the pages after it |
+| `goal_id` | One of the two | The visits that completed this goal of the site, and the pages before its first completion |
+| `depth` | No | Pages after the entry page, or before the goal: 1 to 5, default 3 |
+| `width` | No | Pages shown per step, the most visited first: 1 to 10, default 5 |
+
+**Response (200):**
+
+```json
+{
+  "anchor": { "type": "entry_page", "label": "/start" },
+  "nodes": [
+    { "id": 0, "level": 0, "kind": "anchor", "label": "/start", "visits": 25, "visitors": 22 },
+    { "id": 1, "level": 1, "kind": "page", "label": "/a", "visits": 11, "visitors": 11 },
+    { "id": 2, "level": 1, "kind": "exit", "label": "", "visits": 5, "visitors": 5 },
+    { "id": 3, "level": 1, "kind": "other", "label": "", "visits": 9, "visitors": null }
+  ],
+  "links": [
+    { "source": 0, "target": 1, "visits": 11 },
+    { "source": 0, "target": 2, "visits": 5 },
+    { "source": 0, "target": 3, "visits": 9 }
+  ],
+  "meta": {
+    "date_from": "2026-10-01", "date_to": "2026-10-13",
+    "depth": 3, "width": 5, "min_visitors": 5,
+    "hostnames": ["example.com", "www.example.com"]
+  }
+}
+```
+
+| Node field | Value |
+|------------|-------|
+| `level` | Pages from the anchor; the anchor is 0 |
+| `kind` | `anchor` (the entry page or the goal), `page`, `exit` (the visits that ended there), `entrance` (into a goal: the visits that started there), `other` (the rest of the parent's visits) |
+| `label` | The page's path, or the anchor's page or goal name; empty for `exit`, `entrance` and `other` |
+| `visits` | The visits along the path to this node |
+| `visitors` | Their distinct visitors, at least `meta.min_visitors`; `null` for `other` |
+
+A link carries `visits` from `source` to `target`, both node ids. From an entry page, links run away from the anchor; into a goal, towards it. The visits into a node equal the visits out of it, unless it is the last step shown. Fewer than 5 visitors at the anchor gives empty `nodes` and `links`.
+
+**Errors:** `400` when neither or both of `entry_page` and `goal_id` are given, the goal is not one of the site's, a date or a bound is wrong, or the body has a field this table does not list.
+
 ### Stats API (API key)
 
 #### POST /api/v1/query

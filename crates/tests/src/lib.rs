@@ -40,3 +40,5 @@ mod multi_site_stats_test;
 mod stripe_test;
 #[cfg(test)]
 mod rate_limit_test;
+#[cfg(test)]
+mod journey_test;

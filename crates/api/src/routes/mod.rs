@@ -6,6 +6,7 @@ pub mod funnel;
 pub mod goal;
 pub mod health;
 pub mod invite;
+pub mod journey;
 pub mod member;
 pub mod oauth;
 pub mod org;
