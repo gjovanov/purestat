@@ -45,8 +45,9 @@ ui/
 | Path | View Component | Auth | Description |
 |------|---------------|------|-------------|
 | `/` | Home | No | Landing page |
-| `/login` | Login | No | Email/password and OAuth login |
+| `/login` | Login | No | Email/password and OAuth login; shows why an OAuth sign-in was refused (`?oauth_error=`) |
 | `/register` | Register | No | New account registration |
+| `/auth/oauth` | OAuthComplete | No | Where a Google or GitHub sign-in lands: loads the session from its cookie |
 | `/invite/:code` | InviteAccept | No | Accept organization invite |
 | `/orgs` | OrgList | Yes | List user's organizations |
 | `/org/:orgId/sites` | SiteList | Yes | List sites in an organization |
@@ -74,7 +75,13 @@ Global application state.
 | `locale` | Current language locale |
 | `loading` | Global loading indicator flag |
 
-Key actions: `login()`, `logout()`, `register()`, `fetchMe()`, `toggleDarkMode()`, `setLocale()`.
+Key actions: `login()`, `logout()`, `register()`, `fetchMe()`, `resumeCookieSession()`, `toggleDarkMode()`, `setLocale()`.
+
+#### Signing in with Google or GitHub
+
+The login and sign-up pages ask `GET /api/auth/providers` which providers work on this server and show a "Continue with …" button for each (`components/auth/OAuthButtons.vue`); a server without OAuth shows none. A button is a full-page link to `/api/oauth/{provider}`; the page to return to is kept in `sessionStorage` for the round trip.
+
+The server finishes the sign-in and sends the browser to `/auth/oauth` with the session in HttpOnly cookies. That page calls `resumeCookieSession()`, which loads the user from `GET /api/me` with the cookie. The SPA never reads a credential from an address and never holds this session's token: `localStorage.purestat_session` only remembers that a cookie session may exist, so a reload tries `GET /api/me`. A refused sign-in lands on `/login?oauth_error=<code>`, and the login page shows what the code means. The helpers with no Vue in them are in `utils/oauth.ts`, tested with `bun run test:unit`.
 
 ### org
 

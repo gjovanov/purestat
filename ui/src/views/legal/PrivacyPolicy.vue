@@ -6,7 +6,7 @@
     </router-link>
 
     <h1 class="text-h3 font-weight-bold mb-2">Privacy Policy</h1>
-    <p class="text-body-2 text-medium-emphasis mb-8">Last updated: February 2026</p>
+    <p class="text-body-2 text-medium-emphasis mb-8">Last updated: October 2026</p>
 
     <!-- Introduction -->
     <section class="mb-8">
@@ -103,17 +103,20 @@
     <section class="mb-8">
       <h2 class="text-h5 font-weight-bold mb-3">OAuth Sign-In</h2>
       <p class="text-body-1 mb-3">
-        When you use a third-party OAuth provider (Google, Facebook, GitHub, or LinkedIn) to sign in, we receive
-        the following information from the provider:
+        When you sign in with Google or GitHub, we receive the following information from the provider:
       </p>
       <ul class="text-body-1 ml-6 mb-3">
-        <li class="mb-1">Email address</li>
-        <li class="mb-1">Display name</li>
-        <li class="mb-1">Profile picture URL</li>
+        <li class="mb-1">Your account ID at the provider</li>
+        <li class="mb-1">
+          Your email address and whether the provider has verified it (from GitHub, the addresses on your account, of
+          which we use only the primary, verified one)
+        </li>
+        <li class="mb-1">Your name</li>
       </ul>
       <p class="text-body-1">
-        We use this data solely to create and maintain your Purestat account. We do not access any other data from
-        your third-party accounts.
+        We store your account ID at the provider, the verified email address and your name, solely to create and
+        maintain your Purestat account. We do not store your profile picture or the provider's access token, and we
+        do not access any other data from your third-party accounts.
       </p>
     </section>
 
@@ -137,7 +140,9 @@
       <p class="text-body-1">
         <strong>For dashboard users:</strong> When you log in to the Purestat dashboard, we use a JWT authentication
         token stored as a cookie to maintain your session. This is a strictly necessary, first-party cookie required
-        for the dashboard to function.
+        for the dashboard to function. When you sign in with Google or GitHub, a second first-party cookie ties the
+        sign-in to your browser so that no one else can complete it; it is deleted when the sign-in finishes, and
+        expires after 10 minutes at most. It is strictly necessary as well.
       </p>
     </section>
 

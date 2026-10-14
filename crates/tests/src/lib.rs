@@ -13,6 +13,8 @@ mod engagement_test;
 #[cfg(test)]
 mod auth_test;
 #[cfg(test)]
+mod oauth_test;
+#[cfg(test)]
 mod org_test;
 #[cfg(test)]
 mod site_test;

@@ -556,5 +556,9 @@ async fn test_oauth_routes_are_not_mounted_by_default() {
         .send()
         .await
         .expect("Request failed");
-    assert_eq!(resp.status(), 404, "the unfinished OAuth sign-in is off");
+    assert_eq!(
+        resp.status(),
+        404,
+        "OAuth sign-in is off unless the deployment sets PURESTAT__OAUTH__ENABLED=true"
+    );
 }

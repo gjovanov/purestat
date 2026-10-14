@@ -1,6 +1,25 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useTheme } from 'vuetify'
+import { SESSION_HINT_KEY } from '@/utils/oauth'
+
+/** Whether a cookie session may exist (a hint, not a credential). */
+function readSessionHint(): boolean {
+  try {
+    return localStorage.getItem(SESSION_HINT_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeSessionHint(on: boolean) {
+  try {
+    if (on) localStorage.setItem(SESSION_HINT_KEY, '1')
+    else localStorage.removeItem(SESSION_HINT_KEY)
+  } catch {
+    // Storage blocked: a reload asks for the sign-in again.
+  }
+}
 
 interface User {
   id: string
@@ -14,14 +33,20 @@ interface User {
 export const useAppStore = defineStore('app', () => {
   const user = ref<User | null>(null)
   const accessToken = ref<string | null>(null)
+  // Signed in with Google or GitHub: the session is an HttpOnly cookie the
+  // SPA cannot read, sent with every request. This only says one may exist.
+  const cookieSession = ref(false)
   const darkMode = ref(false)
 
-  const isAuthenticated = computed(() => !!accessToken.value)
+  const isAuthenticated = computed(() => !!accessToken.value || cookieSession.value)
 
   function init() {
     const token = localStorage.getItem('access_token')
     if (token) {
       accessToken.value = token
+      fetchMe()
+    } else if (readSessionHint()) {
+      cookieSession.value = true
       fetchMe()
     }
     const saved = localStorage.getItem('dark_mode')
@@ -55,10 +80,16 @@ export const useAppStore = defineStore('app', () => {
     return data
   }
 
+  // The bearer token of a password login, if any. Without one the session
+  // cookie authenticates; an `Authorization: Bearer null` would override it.
+  function authHeaders(): Record<string, string> {
+    return accessToken.value ? { Authorization: `Bearer ${accessToken.value}` } : {}
+  }
+
   async function fetchMe() {
     try {
       const resp = await fetch('/api/me', {
-        headers: { Authorization: `Bearer ${accessToken.value}` },
+        headers: authHeaders(),
         credentials: 'include',
       })
       if (resp.ok) {
@@ -76,13 +107,33 @@ export const useAppStore = defineStore('app', () => {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken.value}`,
+        ...authHeaders(),
       },
       credentials: 'include',
       body: JSON.stringify(data),
     })
     if (resp.ok) {
       user.value = await resp.json()
+    }
+  }
+
+  /**
+   * After a Google or GitHub sign-in: the server set the session cookie, so
+   * load the user with it. Nothing is read from the address.
+   */
+  async function resumeCookieSession(): Promise<boolean> {
+    // A token left from an earlier password login would be sent instead.
+    accessToken.value = null
+    localStorage.removeItem('access_token')
+    try {
+      const resp = await fetch('/api/me', { credentials: 'include' })
+      if (!resp.ok) return false
+      user.value = await resp.json()
+      cookieSession.value = true
+      writeSessionHint(true)
+      return true
+    } catch {
+      return false
     }
   }
 
@@ -95,7 +146,9 @@ export const useAppStore = defineStore('app', () => {
   function logout() {
     user.value = null
     accessToken.value = null
+    cookieSession.value = false
     localStorage.removeItem('access_token')
+    writeSessionHint(false)
     fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
   }
 
@@ -114,6 +167,7 @@ export const useAppStore = defineStore('app', () => {
     login,
     fetchMe,
     updateProfile,
+    resumeCookieSession,
     logout,
     toggleDarkMode,
   }

@@ -9,6 +9,7 @@
         </div>
 
         <v-card class="pa-6">
+          <OAuthButtons v-if="!success" />
           <v-form ref="formRef" @submit.prevent="handleRegister">
             <v-text-field
               v-model="email"
@@ -84,6 +85,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useValidation } from '@/composables/useValidation'
+import OAuthButtons from '@/components/auth/OAuthButtons.vue'
 
 const { rules } = useValidation()
 

@@ -12,14 +12,14 @@ For self-hosted instances, replace with your configured domain.
 
 Purestat uses **JWT tokens** for authentication. Tokens are issued on login and can be provided in two ways:
 
-1. **httpOnly cookie** (name: `token`) -- Set automatically on login/register. Used by the SPA frontend.
+1. **httpOnly cookie** (`access_token`, with `refresh_token` for `POST /api/auth/refresh`) -- Set on login, refresh and by the [OAuth sign-in](#oauth-sign-in), and cleared by `POST /api/auth/logout`. `SameSite=Lax`, and `Secure` when purestat is served over https (`PURESTAT__APP__FRONTEND_URL` starts with `https://`), so a browser never sends them over plain http. Used by the SPA frontend.
 2. **Authorization header** -- `Authorization: Bearer <token>`. Used for programmatic API access.
 
 An **API key** authenticates [`POST /api/v1/query`](#post-apiv1query) with the `X-API-Key` header. A key belongs to one site and reads only that site; it needs the `stats:read` scope. The dashboard endpoints take a JWT, not a key.
 
 ### Obtaining a Token
 
-Tokens are returned as httpOnly cookies on successful calls to `/api/auth/register`, `/api/auth/login`, and the OAuth callback endpoints.
+Tokens are returned as httpOnly cookies on successful calls to `/api/auth/login` and the OAuth callback endpoints. The OAuth callback puts them in cookies only, never in an address.
 
 ## Error Responses
 
@@ -49,12 +49,14 @@ Requests are limited per client IP address and endpoint group, over a 60-second 
 
 | Endpoint group | Paths | Requests per minute |
 |----------------|-------|---------------------|
-| Auth | `/api/auth/*`, `/api/oauth/*` | 10 |
+| Auth | `/api/auth/*` except `/api/auth/providers`, and `/api/oauth/*` | 10 |
 | Tracker (event ingest) | `/api/event` | 1000 |
 | Stats / Export | every path ending in `/stats`, `/query` or `/export`, and `/api/v1/*` | 120 |
 | API | every other `/api/*` path | 300 |
 
 `/api/health` and `/api/stripe/webhook` are not limited. The limits are configurable: see [Deployment](deployment.md#rate-limiting).
+
+`GET /api/auth/providers` counts in the API group, not Auth: every sign-in page load reads it, and it must not spend the budget of the sign-in itself.
 
 Every limited response says what the limit is and how much of it is left:
 
@@ -155,19 +157,62 @@ Clear the authentication cookie.
 }
 ```
 
-### GET /api/oauth/{provider}
+### OAuth sign-in
 
-> The OAuth sign-in is unfinished, so its two routes are not mounted (they answer `404`) unless the deployment sets `PURESTAT__OAUTH__ENABLED=true`.
+Sign-in with Google and GitHub, when the deployment turns it on ([Deployment](deployment.md#oauth)). Until then `/api/oauth/*` answers `404` and `GET /api/auth/providers` answers `[]`.
 
-Redirect to OAuth provider login page. Supported providers: `google`, `github`, `facebook`, `linkedin`, `microsoft`.
+#### GET /api/auth/providers
 
-**Response:** `302 Redirect` to provider authorization URL.
+The providers a person can sign in with here: OAuth is on, and the provider has a client ID and secret. The SPA shows a button for each of them and for no other. Never more than the names.
 
-### GET /api/oauth/{provider}/callback
+**Response (200):**
 
-OAuth callback handler. Creates or links user account, then redirects to the SPA.
+```json
+["google", "github"]
+```
 
-**Response:** `302 Redirect` to `/` with `token` cookie set.
+#### GET /api/oauth/{provider}
+
+`provider` is `google` or `github`. Starts a sign-in: sets a flow cookie and answers `303 See Other` to the provider's sign-in page, with a fresh `state` and a PKCE `code_challenge` (`S256`) in the address.
+
+The flow cookie is `__Host-purestat_oauth` (`Secure`, path `/`) when the public address is https, and `purestat_oauth` (path `/api/oauth`) when it is not; both are `HttpOnly`, `SameSite=Lax` and expire after 10 minutes. Its value is a random id. The `state` and the PKCE verifier stay on the server, in Redis under a hash of that id, for 10 minutes; the provider only ever sees the challenge.
+
+`facebook`, `linkedin` and `microsoft` answer `404` with a message saying they are not supported. Any other name answers `404`, and so does a provider this server has no client ID and secret for.
+
+#### GET /api/oauth/{provider}/callback
+
+Where the provider sends the browser back, with `code` and `state`, or `error`. Each step refuses before the next one runs:
+
+1. **The flow.** The flow the browser's cookie names is taken out of Redis, so it is used once whatever happens next. The returned `state` must equal its `state` (compared in constant time), and the flow must be under 10 minutes old and started for this provider. A missing cookie or `state`, a mismatch, and an expired or reused flow are refused here, before the provider or any account is touched. A callback URL from someone else's sign-in fails here, because it does not match this browser's flow.
+2. **The code exchange**, with the flow's PKCE `code_verifier`.
+3. **Who signed in.** Google: the OpenID userinfo (`sub`, `email`, `email_verified`). GitHub: `GET /user` (`id`) and `GET /user/emails`.
+4. **The account**, by these rules:
+
+| Situation | Result |
+|-----------|--------|
+| The identity (the provider and its id for the person) is linked to an account | Signed in to that account, whatever its address at the provider is now |
+| The provider vouches for no address: Google's `email_verified` is not `true`; GitHub has no address that is both primary and verified | Refused: `email_unverified` |
+| No account holds the vouched address | A new account: activated, its address proven, no password, the identity linked |
+| An account holds the address and proved it | The identity is linked to that account, which is signed in |
+| An account holds the address but never proved it (registered and not activated, or activated without an email service), or several accounts hold it in different letter case | Refused: `account_exists` |
+
+An account proved its address by following the emailed activation link, or by being created or linked through a provider that vouched for the address. An account from before purestat recorded this counts as proven when it is activated and the deployment sends activation emails. Addresses are compared ignoring letter case. GitHub's public profile address is never used: its owner can type any address there.
+
+**Success:** `303 See Other` to `/auth/oauth`, setting the `access_token` and `refresh_token` cookies as `POST /api/auth/login` does, and clearing the flow cookie. No address carries a credential: the SPA loads the session with `GET /api/me`.
+
+**Refusal:** `303 See Other` to `/login?oauth_error=<code>`, clearing the flow cookie. Nothing was created or linked.
+
+| Code | Meaning |
+|------|---------|
+| `state` | The flow cookie or `state` is missing, does not match, was used already or is older than 10 minutes |
+| `cancelled` | The person declined at the provider |
+| `provider` | The code exchange or a request for who signed in failed |
+| `email_unverified` | The provider vouched for no address |
+| `account_exists` | An account holds the address but has not proved it |
+| `unavailable` | Redis did not answer |
+| `server` | Something else failed |
+
+An account created by an OAuth sign-in has no password. `POST /api/auth/login` answers it with `Invalid credentials`, as it answers an address no account holds.
 
 ### GET /api/invite/{code}
 

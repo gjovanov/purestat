@@ -37,7 +37,7 @@
 | Engagement | Per page: read rate, median read time (visible and focused) and scroll depth |
 | Multi-tenant | Organizations with owner/admin/viewer roles |
 | Stripe billing | Free, Pro, and Business plans with usage limits |
-| OAuth login | Google, GitHub, Facebook, LinkedIn, Microsoft |
+| OAuth login | Google and GitHub, optional ([setup](docs/deployment.md#oauth)) |
 | Dark mode | Full dark/light theme support |
 | i18n ready | Internationalization via vue-i18n |
 | CSV export | Export filtered analytics data |

@@ -22,3 +22,7 @@ uuid.workspace = true
 tracing.workspace = true
 clickhouse.workspace = true
 time = "0.3"
+# oauth_test runs the API in-process, with a mock OAuth provider.
+axum.workspace = true
+mongodb.workspace = true
+redis.workspace = true

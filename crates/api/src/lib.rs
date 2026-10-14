@@ -24,7 +24,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/logout", post(routes::auth::logout))
         .route("/refresh", post(routes::auth::refresh))
         .route("/activate", post(routes::auth::activate))
-        .route("/resend-activation", post(routes::auth::resend_activation));
+        .route("/resend-activation", post(routes::auth::resend_activation))
+        // The OAuth providers the sign-in page offers; `[]` when OAuth is off.
+        .route("/providers", get(routes::oauth::providers));
 
     // Protected user routes
     let me_routes = Router::new()
@@ -132,8 +134,8 @@ pub fn build_router(state: AppState) -> Router {
         // Stats by API key (X-API-Key), for the key's site
         .route("/v1/query", post(routes::v1::query));
 
-    // The OAuth sign-in is unfinished: its routes exist only when a
-    // deployment turns them on (PURESTAT__OAUTH__ENABLED=true).
+    // Sign-in with Google and GitHub: its routes exist only when a deployment
+    // turns it on (PURESTAT__OAUTH__ENABLED=true); otherwise they are a 404.
     if state.settings.oauth.enabled {
         api = api.nest("/oauth", oauth_routes);
     }

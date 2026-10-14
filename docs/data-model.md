@@ -23,10 +23,12 @@ erDiagram
     users {
         ObjectId _id
         string email
-        string name
+        string username
+        string display_name
         string password_hash
-        string oauth_provider
-        string oauth_id
+        array oauth_providers
+        boolean is_verified
+        boolean email_proven
         datetime created_at
         datetime updated_at
     }
@@ -98,16 +100,18 @@ erDiagram
 
 ### users
 
-Stores registered user accounts. Passwords are hashed with argon2. OAuth users have `oauth_provider` and `oauth_id` set instead of `password_hash`.
+Stores registered user accounts. Passwords are hashed with argon2. An account created by a Google or GitHub sign-in has no password, and its sign-in identity is in `oauth_providers`.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `_id` | ObjectId | Primary key |
-| `email` | String | Unique email address |
-| `name` | String | Display name |
-| `password_hash` | String | argon2 password hash (null for OAuth users) |
-| `oauth_provider` | String | OAuth provider name: `google`, `github`, `facebook`, `linkedin`, `microsoft` (null for email users) |
-| `oauth_id` | String | Unique ID from the OAuth provider (null for email users) |
+| `email` | String | Unique email address. Since the index is unique, holding an address reserves it, so [OAuth sign-in](api.md#oauth-sign-in) links to an account by address only when the account proved it (`email_proven`) |
+| `username` | String | Unique username |
+| `display_name` | String | Display name |
+| `password_hash` | String | argon2 password hash (absent for an account created by OAuth sign-in) |
+| `oauth_providers` | Array | Linked sign-in identities, `{ provider, provider_id }`: `provider` is `google` or `github`, `provider_id` the provider's id for the person (Google's `sub`, GitHub's numeric user id). A returning sign-in is found by this pair, never by email |
+| `is_verified` | Boolean | Activated: the account may sign in with its password. Without an email service, registration sets it at once |
+| `email_proven` | Boolean | The account proved it controls `email`: it followed the emailed activation link, or Google or GitHub vouched for the address. `false` until then, and for an account activated without an email service. Absent on accounts from before it existed; those count as proven when activated on a deployment that sends activation emails |
 | `created_at` | DateTime | Account creation timestamp |
 | `updated_at` | DateTime | Last profile update timestamp |
 
@@ -116,7 +120,8 @@ Stores registered user accounts. Passwords are hashed with argon2. OAuth users h
 | Keys | Unique | Purpose |
 |------|--------|---------|
 | `{ email: 1 }` | Yes | Login lookup, duplicate prevention |
-| `{ oauth_provider: 1, oauth_id: 1 }` | Yes (sparse) | OAuth login lookup |
+| `{ username: 1 }` | Yes | Duplicate prevention |
+| `{ "oauth_providers.provider": 1, "oauth_providers.provider_id": 1 }` | No | OAuth sign-in lookup. Not unique: a duplicate the earlier sign-in code may have left would stop a unique index from building, and the API from starting |
 
 ### orgs
 
