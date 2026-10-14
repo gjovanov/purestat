@@ -29,11 +29,12 @@
 | Feature | Description |
 |---------|-------------|
 | Privacy-first | Cookie-free tracking via daily-rotating SHA-256 visitor hashes |
-| Lightweight tracker | < 1KB gzipped JS snippet, SPA-aware |
+| Lightweight tracker | Under 2 KB gzipped, SPA-aware; outbound links and file downloads on request |
 | Real-time dashboard | Live visitor count and activity stream |
 | Goals & conversions | Per goal: converting visitors and conversion rate, overall and per campaign |
 | Campaigns & channels | UTM report with drill-down; visits grouped into search, AI assistants, social, community, code, direct and other |
 | Filters & comparison | Filter the whole dashboard by any dimension; every number compared with the previous period |
+| Engagement | Per page: read rate, median read time (visible and focused) and scroll depth |
 | Multi-tenant | Organizations with owner/admin/viewer roles |
 | Stripe billing | Free, Pro, and Business plans with usage limits |
 | OAuth login | Google, GitHub, Facebook, LinkedIn, Microsoft |
@@ -52,7 +53,7 @@
 | Analytics DB | ClickHouse 24 (time-series events & sessions) |
 | Config DB | MongoDB 7 (users, orgs, sites, goals) |
 | Cache | Redis 7 |
-| Tracker | TypeScript, Rollup, < 1KB gzipped output |
+| Tracker | TypeScript, Rollup, under 2 KB gzipped output |
 | Infra | Docker Compose, Caddy 2 (auto-HTTPS) |
 
 ## Architecture
@@ -61,7 +62,7 @@
 graph TB
     subgraph Client
         Browser[Browser]
-        TrackerJS[purestat.js<br/>< 1KB]
+        TrackerJS[purestat.js<br/>< 2 KB]
     end
 
     subgraph "Rust Backend"

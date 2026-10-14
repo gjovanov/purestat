@@ -184,7 +184,7 @@ Dashboard
   BreakdownCard           # One card per report, with tabs, "Show more" and drill-down:
                           #   Sources:   Channels / Sources / Referrers
                           #   Campaigns: Source / Medium / Campaign / Content / Term / Source group / Medium group
-                          #   Pages:     Pages / Entry pages / Exit pages
+                          #   Pages:     Pages (with read rate, read time, scroll) / Entry pages / Exit pages
                           #   Locations: Countries
                           #   Devices:   Devices / Browsers / Operating systems
   GoalsTable              # Per goal: conversions, conversion rate and their change (one site only)
@@ -199,6 +199,7 @@ Dashboard
 - **Channels** group visits by their referrer, by the table in [the API reference](api.md#channels-and-campaigns): search, AI assistants, social, community, code, own site, direct and other. The grouping is done by the server, so the dashboard and the API agree.
 - **Campaigns** list the visits that carry a campaign. Sources and mediums are normalised (`YouTube`, `youtub` and `yt` are `youtube`; `twitter` is `x`); a source the table does not know is listed as itself, and under `other` in the Source group tab. With a goal selected in the card, each row also shows the goal's conversions and conversion rate.
 - **Goals** report the unique visitors who completed each goal (`Conversions`), their share of all visitors (`CR`), and both changes.
+- **Engagement per page.** The Pages tab shows, per page, its visitors and pageviews, its **read rate** (the share of its pageviews read: 30 s or more of visible, focused time, or 75 % of the page scrolled), its **read time** (the median, never a mean) and its **scroll** depth (the median of how far down its pageviews got; a dash for a page that does not scroll). Each column header explains itself on hover. Filtered by a channel or a campaign, the same columns show how that traffic reads.
 
 ### Common Components
 

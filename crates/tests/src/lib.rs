@@ -7,6 +7,8 @@ mod trust_test;
 mod v1_test;
 #[cfg(test)]
 mod report_test;
+#[cfg(test)]
+mod engagement_test;
 
 #[cfg(test)]
 mod auth_test;

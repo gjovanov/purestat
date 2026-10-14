@@ -134,6 +134,8 @@ A user configures conversion goals to track specific user actions on their websi
    })
    ```
 
+   Clicks on outbound links and file downloads need no code: add `data-outbound-links` and `data-file-downloads` to the script tag, and create custom-event goals for `outbound-click` and `file-download` ([tracker](tracker.md#outbound-links-and-file-downloads)).
+
 5. **Track revenue (optional)**
 
    For purchase events, include revenue data:

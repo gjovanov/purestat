@@ -1,5 +1,92 @@
 import { describe, expect, test } from 'bun:test';
-import { ignoreFlagSet, isLocalHost, pageviewId, shouldSkip, visibleClock } from '../src/rules';
+import {
+  FILE_TYPES,
+  fileTypes,
+  ignoreFlagSet,
+  isLocalHost,
+  linkEvent,
+  optedIn,
+  pageviewId,
+  seenPercent,
+  shouldSkip,
+  visibleClock,
+} from '../src/rules';
+
+describe('seenPercent', () => {
+  test('the bottom of the screen, as a share of the page', () => {
+    expect(seenPercent(0, 1000, 4000)).toBe(25);
+    expect(seenPercent(2000, 1000, 4000)).toBe(75);
+    expect(seenPercent(3000, 1000, 4000)).toBe(100);
+    // Overscroll (iOS bounces) never passes the bottom or the top.
+    expect(seenPercent(3500, 1000, 4000)).toBe(100);
+    expect(seenPercent(-200, 1000, 4000)).toBe(25);
+  });
+
+  test('a page that does not scroll has no depth', () => {
+    expect(seenPercent(0, 1000, 1000)).toBe(0);
+    expect(seenPercent(0, 1000, 600)).toBe(0);
+    expect(seenPercent(0, 0, 600)).toBe(0);
+  });
+});
+
+describe('script attributes', () => {
+  test('an opt-in is present and not "false"', () => {
+    expect(optedIn('')).toBe(true);
+    expect(optedIn('true')).toBe(true);
+    expect(optedIn('pdf,zip')).toBe(true);
+    expect(optedIn(null)).toBe(false);
+    expect(optedIn('false')).toBe(false);
+  });
+
+  test('file types: the ones listed, or the default list', () => {
+    expect(fileTypes('')).toEqual(FILE_TYPES.split(','));
+    expect(fileTypes('true')).toEqual(FILE_TYPES.split(','));
+    expect(fileTypes('PDF, .zip,epub')).toEqual(['pdf', 'zip', 'epub']);
+    expect(FILE_TYPES.split(',')).toContain('pdf');
+  });
+});
+
+describe('linkEvent', () => {
+  const types = fileTypes('');
+
+  test('a link to another host is an outbound click, sent without its query or fragment', () => {
+    expect(
+      linkEvent('https://user:pw@github.com/gjovanov/roomler-ai?token=secret#readme', 'roomler.ai', true, null)
+    ).toEqual(['outbound-click', 'https://github.com/gjovanov/roomler-ai']);
+    expect(linkEvent('https://docs.roomler.ai/', 'roomler.ai', true, null)).toEqual([
+      'outbound-click',
+      'https://docs.roomler.ai/',
+    ]);
+  });
+
+  test('a link on the page host, or outbound clicks not asked for, is nothing', () => {
+    expect(linkEvent('https://roomler.ai/pricing', 'roomler.ai', true, types)).toBeNull();
+    expect(linkEvent('https://github.com/', 'roomler.ai', false, types)).toBeNull();
+  });
+
+  test('a file of a counted type is a download, wherever it is', () => {
+    expect(linkEvent('https://roomler.ai/files/Guide.PDF?v=2', 'roomler.ai', false, types)).toEqual([
+      'file-download',
+      'https://roomler.ai/files/Guide.PDF',
+    ]);
+    expect(linkEvent('https://cdn.example.net/app.dmg', 'roomler.ai', true, types)).toEqual([
+      'file-download',
+      'https://cdn.example.net/app.dmg',
+    ]);
+    expect(linkEvent('https://roomler.ai/blog/v1.2', 'roomler.ai', false, types)).toBeNull();
+    expect(linkEvent('https://roomler.ai/a.epub', 'roomler.ai', false, fileTypes('epub'))).toEqual([
+      'file-download',
+      'https://roomler.ai/a.epub',
+    ]);
+    expect(linkEvent('https://roomler.ai/a.pdf', 'roomler.ai', false, null)).toBeNull();
+  });
+
+  test('anything but a web address is nothing', () => {
+    expect(linkEvent('mailto:hi@example.com', 'roomler.ai', true, types)).toBeNull();
+    expect(linkEvent('javascript:void(0)', 'roomler.ai', true, types)).toBeNull();
+    expect(linkEvent('not a url', 'roomler.ai', true, types)).toBeNull();
+  });
+});
 
 describe('isLocalHost', () => {
   test('local, loopback and private hosts', () => {

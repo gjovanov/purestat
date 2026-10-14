@@ -1,4 +1,13 @@
-import { ignoreFlagSet, pageviewId, shouldSkip, visibleClock } from './rules';
+import {
+  fileTypes,
+  ignoreFlagSet,
+  linkEvent,
+  optedIn,
+  pageviewId,
+  seenPercent,
+  shouldSkip,
+  visibleClock,
+} from './rules';
 
 (function () {
   'use strict';
@@ -23,10 +32,15 @@ import { ignoreFlagSet, pageviewId, shouldSkip, visibleClock } from './rules';
   }
 
   var script = d.currentScript as HTMLScriptElement;
-  var apiUrl =
-    script.getAttribute('data-api') ||
-    new URL(script.src).origin + '/api/event';
-  var domain = script.getAttribute('data-domain') || l.hostname;
+  var attr = function (name: string) {
+    return script.getAttribute(name);
+  };
+  var apiUrl = attr('data-api') || new URL(script.src).origin + '/api/event';
+  var domain = attr('data-domain') || l.hostname;
+  // Clicks on links are reported only when the page asks for them.
+  var outbound = optedIn(attr('data-outbound-links'));
+  var downloads = attr('data-file-downloads');
+  var types = optedIn(downloads) ? fileTypes(downloads) : null;
 
   interface Payload {
     domain: string;
@@ -63,22 +77,46 @@ import { ignoreFlagSet, pageviewId, shouldSkip, visibleClock } from './rules';
     return d.visibilityState !== 'hidden';
   }
 
-  // The page being measured: its path, its address, its pageview id, and
-  // the visible seconds already reported for it.
+  // Read time is time the page is visible and has the focus (a frame of
+  // the page holding it counts). A browser without hasFocus counts visible.
+  function isActive() {
+    return isVisible() && (!d.hasFocus || d.hasFocus());
+  }
+
+  // The page being measured: its path, its address, its pageview id, the
+  // read seconds and the depth already reported for it, and the deepest
+  // point of it seen so far.
   var lastPage: string | undefined;
   var pageUrl = '';
   var pv = '';
   var reported = 0;
-  var clock = visibleClock(Date.now, isVisible());
+  var reportedDepth = 0;
+  var depth = 0;
+  var clock = visibleClock(Date.now, isActive());
 
-  // Reports the page's visible time so far, at the page's own address. A
-  // pageview's engaged time is its longest report; nothing is sent until the
-  // time has grown.
+  function measure() {
+    var el = d.documentElement;
+    if (!el) return;
+    var seen = seenPercent(
+      w.pageYOffset || el.scrollTop,
+      w.innerHeight,
+      Math.max(el.scrollHeight, d.body ? d.body.scrollHeight : 0)
+    );
+    if (seen > depth) depth = seen;
+  }
+
+  // Reports the page's read time and depth so far, at the page's own
+  // address. A pageview's engaged time is its longest report and its depth
+  // its deepest; nothing is sent until one of them has grown.
   function sendEngagement() {
+    measure();
     var seconds = clock.seconds();
-    if (pv && seconds > reported) {
+    if (pv && (seconds > reported || depth > reportedDepth)) {
       reported = seconds;
-      send('engagement', { duration: String(seconds), pv: pv }, pageUrl);
+      reportedDepth = depth;
+      var props: Record<string, string> = { duration: String(seconds), pv: pv };
+      if (depth) props.scroll = String(depth);
+      send('engagement', props, pageUrl);
     }
   }
 
@@ -90,7 +128,9 @@ import { ignoreFlagSet, pageviewId, shouldSkip, visibleClock } from './rules';
     pageUrl = l.href;
     pv = pageviewId(Math.random);
     reported = 0;
-    clock.reset(isVisible());
+    reportedDepth = 0;
+    depth = 0;
+    clock.reset(isActive());
     send('pageview');
   }
 
@@ -102,20 +142,40 @@ import { ignoreFlagSet, pageviewId, shouldSkip, visibleClock } from './rules';
   };
   w.addEventListener('popstate', trackPageview);
 
-  // Hidden time is not engaged time: the clock stops while the page is
-  // hidden, and the time so far is reported when it hides or goes away.
+  // The clock stops while the page is hidden or without the focus, and the
+  // time so far is reported when it hides or goes away.
+  function sync() {
+    if (isActive()) clock.show();
+    else clock.hide();
+  }
   d.addEventListener('visibilitychange', function () {
-    if (isVisible()) {
-      clock.show();
-    } else {
-      clock.hide();
-      sendEngagement();
-    }
+    sync();
+    if (!isVisible()) sendEngagement();
+  });
+  w.addEventListener('focus', sync);
+  // The focus may have moved into a frame of the page: ask once it has.
+  w.addEventListener('blur', function () {
+    setTimeout(sync, 0);
   });
   w.addEventListener('pagehide', function () {
     clock.hide();
     sendEngagement();
   });
+  w.addEventListener('scroll', measure, { passive: true });
+
+  // Outbound links and file downloads, opted in by data-outbound-links and
+  // data-file-downloads: a click, or a middle click that opens a tab.
+  function onLink(e: MouseEvent) {
+    if (e.type === 'auxclick' && e.button !== 1) return;
+    var el = e.target as HTMLAnchorElement | null;
+    while (el && !(el.tagName === 'A' && el.href)) el = el.parentNode as HTMLAnchorElement | null;
+    var event = el && linkEvent(el.href, l.hostname, outbound, types);
+    if (event) send(event[0], { url: event[1] });
+  }
+  if (outbound || types) {
+    d.addEventListener('click', onLink);
+    d.addEventListener('auxclick', onLink);
+  }
 
   // Initial pageview
   trackPageview();
