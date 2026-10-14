@@ -22,6 +22,8 @@ This starts:
 - **ClickHouse 24** on ports `8123` (HTTP) and `9000` (native)
 - **Redis 7** on port `6379`
 
+ClickHouse must be **24.10 or newer**: [funnels](funnels.md#requirements) use a `windowFunnel` mode that older versions refuse. The `clickhouse/clickhouse-server:24` image is 24.10.2.80; a host with an older image cached under that tag needs a fresh pull.
+
 ### 2. Run the backend
 
 ```bash

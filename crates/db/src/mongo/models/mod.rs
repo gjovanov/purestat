@@ -1,5 +1,6 @@
 mod activation_code;
 mod api_key;
+mod funnel;
 mod goal;
 mod invite;
 mod org;
@@ -9,6 +10,7 @@ mod user;
 
 pub use activation_code::*;
 pub use api_key::*;
+pub use funnel::*;
 pub use goal::*;
 pub use invite::*;
 pub use org::*;

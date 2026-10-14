@@ -2,6 +2,7 @@ pub mod api_key;
 pub mod auth;
 pub mod event;
 pub mod export;
+pub mod funnel;
 pub mod goal;
 pub mod health;
 pub mod invite;

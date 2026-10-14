@@ -68,6 +68,18 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/{goal_id}", delete(routes::goal::delete));
 
+    // Funnel routes. The report ends in /stats, so it is rate-limited as the
+    // other stats are.
+    let funnel_routes = Router::new()
+        .route("/", get(routes::funnel::list).post(routes::funnel::create))
+        .route(
+            "/{funnel_id}",
+            get(routes::funnel::get)
+                .put(routes::funnel::update)
+                .delete(routes::funnel::delete),
+        )
+        .route("/{funnel_id}/stats", post(routes::funnel::stats));
+
     // Member routes
     let member_routes = Router::new()
         .route("/", get(routes::member::list))
@@ -120,6 +132,7 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/org", org_routes)
         .nest("/org/{org_id}/site", site_routes)
         .nest("/org/{org_id}/site/{site_id}/goal", goal_routes)
+        .nest("/org/{org_id}/site/{site_id}/funnel", funnel_routes)
         .nest("/org/{org_id}/member", member_routes)
         .nest("/org/{org_id}/invite", invite_org_routes)
         .nest("/org/{org_id}/site/{site_id}/api-key", api_key_routes)

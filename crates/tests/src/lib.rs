@@ -21,6 +21,8 @@ mod site_test;
 #[cfg(test)]
 mod goal_test;
 #[cfg(test)]
+mod funnel_test;
+#[cfg(test)]
 mod invite_test;
 #[cfg(test)]
 mod member_test;

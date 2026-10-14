@@ -34,6 +34,11 @@
             :to="{ name: 'goals', params: routeParams }"
           />
           <v-list-item
+            prepend-icon="mdi-filter-outline"
+            title="Funnels"
+            :to="{ name: 'funnels', params: routeParams }"
+          />
+          <v-list-item
             prepend-icon="mdi-key"
             title="API Keys"
             :to="{ name: 'api-keys', params: routeParams }"

@@ -60,6 +60,9 @@ pub async fn ensure_indexes(db: &Database) -> Result<(), mongodb::error::Error> 
     // Goals
     create_indexes(db, "goals", vec![index(bson::doc! { "site_id": 1 })]).await?;
 
+    // Funnels
+    create_indexes(db, "funnels", vec![index(bson::doc! { "site_id": 1 })]).await?;
+
     // Invites
     create_indexes(
         db,

@@ -32,6 +32,7 @@
 | Lightweight tracker | Under 2 KB gzipped, SPA-aware; outbound links and file downloads on request |
 | Real-time dashboard | Live visitor count and activity stream |
 | Goals & conversions | Per goal: converting visitors and conversion rate, overall and per campaign |
+| Funnels | Ordered steps within a visit, with conversion and drop-off per step, by source and campaign ([docs](docs/funnels.md)) |
 | Campaigns & channels | UTM report with drill-down; visits grouped into search, AI assistants, social, community, code, direct and other |
 | Filters & comparison | Filter the whole dashboard by any dimension; every number compared with the previous period |
 | Engagement | Per page: read rate, median read time (visible and focused) and scroll depth |

@@ -53,6 +53,7 @@ ui/
 | `/org/:orgId/sites` | SiteList | Yes | List sites in an organization |
 | `/org/:orgId/site/:siteId` | Dashboard | Yes | Analytics dashboard |
 | `/org/:orgId/site/:siteId/goals` | Goals | Yes | Goal management and conversions |
+| `/org/:orgId/site/:siteId/funnels` | Funnels | Yes | Funnel definitions and their report ([Funnels](funnels.md)) |
 | `/org/:orgId/site/:siteId/settings` | SiteSettings | Yes | Site configuration |
 | `/org/:orgId/site/:siteId/api-keys` | ApiKeys | Yes | API key management |
 | `/org/:orgId/members` | Members | Yes | Organization member management |
@@ -146,6 +147,16 @@ Goal and conversion tracking.
 | `goals` | List of configured goals for the current site |
 
 Key actions: `fetchGoals()`, `createGoal()`, `deleteGoal()`. The conversions themselves are part of the dashboard's report (`stats.goalResults`).
+
+### funnels
+
+A site's funnels and their reports.
+
+| State | Description |
+|-------|-------------|
+| `funnels` | The funnels of the current site |
+
+Key actions: `fetchFunnels()`, `createFunnel()`, `updateFunnel()`, `deleteFunnel()`, `fetchReport()`. The Funnels view keeps the selected funnel's report, breakdown and filters itself. Its components are in `components/funnels/`: `FunnelEditor` (the create and edit dialog), `FunnelSteps` (the steps as bars, with conversion and drop-off) and `FunnelBreakdown` (the breakdown table).
 
 ### billing
 
