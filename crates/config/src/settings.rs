@@ -82,24 +82,50 @@ pub struct RedisSettings {
     pub url: String,
 }
 
-/// PURESTAT__OAUTH__ENABLED mounts the `/api/oauth/*` routes. Off by default:
-/// the sign-in flow behind them is unfinished.
+/// Sign-in with Google and GitHub (docs/deployment.md#oauth).
+///
+/// PURESTAT__OAUTH__ENABLED mounts the `/api/oauth/*` routes; off by default.
+/// A provider takes part only when it is enabled AND both its client id and
+/// secret are set (PURESTAT__OAUTH__GOOGLE__CLIENT_ID, ..._CLIENT_SECRET, and
+/// the same under GITHUB). The callback address is not a setting: it is
+/// `{app.frontend_url}/api/oauth/{provider}/callback`.
+///
+/// Only Google and GitHub exist. Facebook, LinkedIn and Microsoft were listed
+/// once but never worked; their variables are ignored.
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct OAuthSettings {
     #[serde(default)]
     pub enabled: bool,
     pub google: Option<OAuthProviderSettings>,
-    pub facebook: Option<OAuthProviderSettings>,
     pub github: Option<OAuthProviderSettings>,
-    pub linkedin: Option<OAuthProviderSettings>,
-    pub microsoft: Option<OAuthProviderSettings>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone, Default)]
 pub struct OAuthProviderSettings {
+    #[serde(default)]
     pub client_id: String,
+    #[serde(default)]
     pub client_secret: String,
-    pub redirect_uri: String,
+}
+
+impl OAuthProviderSettings {
+    /// Both halves of the client credential are set.
+    pub fn is_complete(&self) -> bool {
+        !self.client_id.trim().is_empty() && !self.client_secret.trim().is_empty()
+    }
+}
+
+/// The secret never reaches a log line through `{:?}`.
+impl std::fmt::Debug for OAuthProviderSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthProviderSettings")
+            .field("client_id", &self.client_id)
+            .field(
+                "client_secret",
+                &if self.client_secret.is_empty() { "" } else { "<redacted>" },
+            )
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -205,12 +231,13 @@ fn default_stats_rpm() -> u32 {
 
 impl Settings {
     pub fn load() -> Result<Self, ConfigError> {
+        Self::load_with(Environment::default())
+    }
+
+    /// `load`, reading the variables from `env` (a test passes a map).
+    fn load_with(env: Environment) -> Result<Self, ConfigError> {
         let config = Config::builder()
-            .add_source(
-                Environment::default()
-                    .separator("__")
-                    .prefix("PURESTAT"),
-            )
+            .add_source(env.separator("__").prefix("PURESTAT"))
             // App defaults
             .set_default("app.host", "0.0.0.0")?
             .set_default("app.port", 3000)?
@@ -235,7 +262,8 @@ impl Settings {
             // Redis defaults
             .set_default("redis.url", "redis://localhost:6380")?
             // OAuth: the routes are not mounted unless enabled; providers are
-            // None by default.
+            // None by default, and the callback address derives from
+            // app.frontend_url.
             .set_default("oauth.enabled", false)?
             // Stripe defaults (empty by default — optional)
             // Email defaults
@@ -302,5 +330,79 @@ mod tests {
         let secret = "9f2c4e7a1b3d5f6e8a0c2e4f6a8b0d1e3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e";
         assert_eq!(jwt(secret).secret_problem(), None);
         assert_eq!(jwt(&"y".repeat(MIN_JWT_SECRET_LEN)).secret_problem(), None);
+    }
+
+    /// Settings from exactly these variables, without touching the process
+    /// environment (other tests in this binary read it).
+    fn load_from(vars: &[(&str, &str)]) -> Settings {
+        let map = vars
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        Settings::load_with(Environment::default().source(Some(map))).expect("settings load")
+    }
+
+    #[test]
+    fn oauth_is_off_with_no_providers_by_default() {
+        let s = load_from(&[]);
+        assert!(!s.oauth.enabled);
+        assert!(s.oauth.google.is_none());
+        assert!(s.oauth.github.is_none());
+    }
+
+    #[test]
+    fn the_documented_oauth_variables_configure_google_and_github() {
+        // The names docs/deployment.md and .env.example tell an operator to set.
+        let s = load_from(&[
+            ("PURESTAT__OAUTH__ENABLED", "true"),
+            ("PURESTAT__OAUTH__GOOGLE__CLIENT_ID", "fake-google-id"),
+            ("PURESTAT__OAUTH__GOOGLE__CLIENT_SECRET", "fake-google-secret"),
+            ("PURESTAT__OAUTH__GITHUB__CLIENT_ID", "fake-github-id"),
+            ("PURESTAT__OAUTH__GITHUB__CLIENT_SECRET", "fake-github-secret"),
+        ]);
+        assert!(s.oauth.enabled);
+        let google = s.oauth.google.expect("google");
+        assert_eq!(google.client_id, "fake-google-id");
+        assert_eq!(google.client_secret, "fake-google-secret");
+        assert!(google.is_complete());
+        assert!(s.oauth.github.expect("github").is_complete());
+    }
+
+    #[test]
+    fn half_a_client_credential_is_not_a_configured_provider() {
+        let s = load_from(&[
+            ("PURESTAT__OAUTH__ENABLED", "true"),
+            ("PURESTAT__OAUTH__GOOGLE__CLIENT_ID", "fake-google-id"),
+            ("PURESTAT__OAUTH__GITHUB__CLIENT_SECRET", "fake-github-secret"),
+        ]);
+        assert!(!s.oauth.google.expect("google").is_complete());
+        assert!(!s.oauth.github.expect("github").is_complete());
+    }
+
+    #[test]
+    fn retired_providers_and_the_old_redirect_variable_do_not_stop_the_api() {
+        // Variables the old docs listed. They must not fail the settings load,
+        // and they configure nothing.
+        let s = load_from(&[
+            ("PURESTAT__OAUTH__FACEBOOK__CLIENT_ID", "fake-facebook-id"),
+            ("PURESTAT__OAUTH__MICROSOFT__CLIENT_SECRET", "fake-ms-secret"),
+            (
+                "PURESTAT__OAUTH__GOOGLE__REDIRECT_URI",
+                "https://elsewhere.example/api/oauth/google/callback",
+            ),
+        ]);
+        assert!(s.oauth.github.is_none());
+        assert!(!s.oauth.google.expect("google").is_complete());
+    }
+
+    #[test]
+    fn a_client_secret_never_prints() {
+        let p = OAuthProviderSettings {
+            client_id: "fake-id".into(),
+            client_secret: "fake-secret-value".into(),
+        };
+        let printed = format!("{p:?}");
+        assert!(printed.contains("fake-id"), "{printed}");
+        assert!(!printed.contains("fake-secret-value"), "{printed}");
     }
 }

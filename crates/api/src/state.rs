@@ -8,6 +8,7 @@ use purestat_services::analytics::query::QueryService;
 use purestat_services::analytics::realtime::RealtimeService;
 use purestat_services::analytics::session::SessionService;
 use purestat_services::export::ExportService;
+use purestat_services::oauth::OAuthClient;
 use purestat_services::stripe::StripeService;
 use purestat_services::EmailService;
 use purestat_services::{
@@ -39,6 +40,8 @@ pub struct AppState {
     pub geo: Arc<GeoService>,
     pub session: Arc<SessionService>,
     pub redis: redis::aio::ConnectionManager,
+    /// Sign-in with Google and GitHub (routes::oauth).
+    pub oauth: Arc<OAuthClient>,
 }
 
 impl AppState {
@@ -78,6 +81,10 @@ impl AppState {
         let realtime = Arc::new(RealtimeService::new(ch.clone()));
         let export = Arc::new(ExportService::new(ch.clone()));
         let stripe = Arc::new(StripeService::new(settings.stripe.clone()));
+        let oauth = Arc::new(OAuthClient::from_settings(
+            &settings.oauth,
+            &settings.app.frontend_url,
+        ));
 
         let geo = Arc::new(GeoService::new(&settings.geo.geoip_db_path));
 
@@ -116,6 +123,7 @@ impl AppState {
             privacy,
             geo,
             session,
+            oauth,
         })
     }
 }

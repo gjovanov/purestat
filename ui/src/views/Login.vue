@@ -9,6 +9,10 @@
         </div>
 
         <v-card class="pa-6">
+          <v-alert v-if="oauthErrorCode" type="error" density="compact" class="mb-4">
+            {{ $t(`auth.oauth.errors.${oauthErrorCode}`) }}
+          </v-alert>
+          <OAuthButtons />
           <v-form ref="formRef" @submit.prevent="handleLogin">
             <v-text-field
               v-model="email"
@@ -63,10 +67,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useValidation } from '@/composables/useValidation'
+import OAuthButtons from '@/components/auth/OAuthButtons.vue'
+import { oauthError } from '@/utils/oauth'
 
 const appStore = useAppStore()
 const router = useRouter()
@@ -81,6 +87,8 @@ const loading = ref(false)
 const error = ref('')
 const showResendActivation = ref(false)
 const resendSuccess = ref(false)
+// Why a Google or GitHub sign-in was refused: /login?oauth_error=<code>.
+const oauthErrorCode = computed(() => oauthError(route.query.oauth_error))
 
 async function resendActivation() {
   try {

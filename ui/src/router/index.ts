@@ -29,6 +29,13 @@ const router = createRouter({
       meta: { public: true, layout: 'blank' },
     },
     {
+      // Where a Google or GitHub sign-in lands: the session is in a cookie.
+      path: '/auth/oauth',
+      name: 'oauth-complete',
+      component: () => import('@/views/OAuthComplete.vue'),
+      meta: { public: true, layout: 'blank' },
+    },
+    {
       path: '/privacy',
       name: 'privacy',
       component: () => import('@/views/legal/PrivacyPolicy.vue'),

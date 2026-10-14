@@ -34,3 +34,6 @@ futures.workspace = true
 maxminddb.workspace = true
 time = "0.3"
 url = "2"
+# OAuth (PS6): base64url for the PKCE challenge, constant-time state compare.
+base64 = "0.22"
+subtle = "2"

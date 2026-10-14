@@ -3,13 +3,20 @@ use mongodb::{Database, IndexModel};
 use tracing::info;
 
 pub async fn ensure_indexes(db: &Database) -> Result<(), mongodb::error::Error> {
-    // Users
+    // Users. A returning OAuth sign-in is found by its (provider, provider_id)
+    // identity. That index is not unique: the old sign-in code could have
+    // linked one identity to two accounts, and a unique index would then fail
+    // to build and stop the API from starting.
     create_indexes(
         db,
         "users",
         vec![
             index_unique(bson::doc! { "email": 1 }),
             index_unique(bson::doc! { "username": 1 }),
+            index(bson::doc! {
+                "oauth_providers.provider": 1,
+                "oauth_providers.provider_id": 1,
+            }),
         ],
     )
     .await?;

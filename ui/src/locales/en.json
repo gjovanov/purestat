@@ -27,7 +27,25 @@
     "noAccount": "Don't have an account?",
     "hasAccount": "Already have an account?",
     "forgotPassword": "Forgot password?",
-    "orContinueWith": "Or continue with"
+    "orContinueWith": "Or continue with",
+    "oauth": {
+      "continueWithGoogle": "Continue with Google",
+      "continueWithGithub": "Continue with GitHub",
+      "orEmail": "or with your email",
+      "signingIn": "Signing you in…",
+      "failedTitle": "Sign-in did not complete",
+      "failedBody": "Your session could not be loaded. Please sign in again.",
+      "backToLogin": "Back to sign in",
+      "errors": {
+        "state": "That sign-in expired or was started in another browser. Please try again.",
+        "cancelled": "Sign-in was cancelled.",
+        "provider": "The sign-in with that provider did not complete. Please try again.",
+        "email_unverified": "That account has no verified email address, so purestat cannot use it. Verify your address with the provider (on GitHub, your primary address), or sign up with an email and password.",
+        "account_exists": "An account with this email address already exists and has not confirmed the address. Sign in with your email and password.",
+        "unavailable": "Sign-in is unavailable right now. Please try again in a minute.",
+        "server": "Something went wrong while signing you in. Please try again."
+      }
+    }
   },
   "org": {
     "create": "Create Organization",

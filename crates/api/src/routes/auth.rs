@@ -78,11 +78,13 @@ pub async fn register(
     let user_id_oid = user.id.unwrap();
     let user_id = user_id_oid.to_hex();
 
-    // If email service is not configured, auto-verify (dev/test mode)
+    // If email service is not configured, auto-verify (dev/test mode). The
+    // account may then sign in, but its address is not proven, so OAuth never
+    // links a Google or GitHub sign-in to it by email.
     if state.email.is_none() {
         let _ = state
             .users
-            .set_verified(user_id_oid, true)
+            .activate(user_id_oid, false)
             .await;
         tracing::info!("Auto-verified user (no email service configured): {}", &email);
     } else {
@@ -135,10 +137,13 @@ pub async fn login(
         .await
         .map_err(|_| ApiError::Unauthorized("Invalid credentials".to_string()))?;
 
+    // An account made by Google or GitHub sign-in has no password. Its answer
+    // is the same as a wrong password's, so this form does not tell anyone
+    // which addresses signed up that way.
     let password_hash = user
         .password_hash
         .as_ref()
-        .ok_or_else(|| ApiError::Unauthorized("No password set".to_string()))?;
+        .ok_or_else(|| ApiError::Unauthorized("Invalid credentials".to_string()))?;
 
     let valid = state.auth.verify_password(&body.password, password_hash)?;
     if !valid {
@@ -272,9 +277,10 @@ pub async fn activate(
         .map_err(|e| ApiError::Internal(format!("Database error: {}", e)))?
         .ok_or_else(|| ApiError::BadRequest("Invalid or expired activation token".to_string()))?;
 
+    // The emailed link reached its owner: the address is proven.
     state
         .users
-        .set_verified(user_id, true)
+        .activate(user_id, true)
         .await
         .map_err(|e| ApiError::Internal(format!("Failed to activate: {}", e)))?;
 
@@ -351,7 +357,8 @@ pub async fn resend_activation(
     Ok(ok)
 }
 
-fn set_auth_cookies(headers: &mut HeaderMap, access_token: &str, refresh_token: &str) {
+/// The session cookies, for a password login and an OAuth sign-in alike.
+pub(crate) fn set_auth_cookies(headers: &mut HeaderMap, access_token: &str, refresh_token: &str) {
     if let Ok(val) = HeaderValue::from_str(&format!(
         "access_token={access_token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400"
     )) {

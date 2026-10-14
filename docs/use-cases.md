@@ -10,7 +10,7 @@ A new user registers, creates an organization, adds their website, installs the 
 
 1. **Register an account**
 
-   Navigate to `/register` and create an account with email and password, or use an OAuth provider (Google, GitHub, Facebook, LinkedIn, Microsoft).
+   Navigate to `/register` and create an account with email and password, or continue with Google or GitHub when the server has them configured. An OAuth sign-up needs an address the provider has verified (on GitHub, the primary address), and the account it creates is active at once.
 
    ```
    POST /api/auth/register

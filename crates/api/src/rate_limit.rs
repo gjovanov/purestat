@@ -61,6 +61,11 @@ pub fn classify(path: &str, limits: &RateLimitSettings) -> Option<(&'static str,
     if !path.starts_with("/api/") || path == "/api/health" || path == "/api/stripe/webhook" {
         return None;
     }
+    // Every sign-in page load reads it, and it checks no credential: it must
+    // not spend the auth group's budget before the sign-in itself.
+    if path == "/api/auth/providers" {
+        return Some(("api", limits.api_rpm));
+    }
     if path.starts_with("/api/auth/") || path.starts_with("/api/oauth/") {
         return Some(("auth", limits.auth_rpm));
     }
@@ -267,6 +272,8 @@ mod tests {
             ("/api/auth/login", Some("auth")),
             ("/api/auth/resend-activation", Some("auth")),
             ("/api/oauth/google/callback", Some("auth")),
+            ("/api/oauth/github", Some("auth")),
+            ("/api/auth/providers", Some("api")),
             ("/api/event", Some("tracker")),
             ("/api/org/a/site/b/stats", Some("stats")),
             ("/api/org/a/site/b/export", Some("stats")),

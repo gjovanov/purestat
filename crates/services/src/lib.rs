@@ -3,6 +3,7 @@ pub mod auth;
 pub mod dao;
 pub mod email;
 pub mod export;
+pub mod oauth;
 pub mod stripe;
 
 pub use auth::AuthService;

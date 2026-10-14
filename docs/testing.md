@@ -78,6 +78,26 @@ Since Rust does not have Go-style race detection, limiting to a single thread he
 cargo test -p purestat-tests test_name
 ```
 
+### OAuth sign-in tests
+
+`oauth_test` does not use the running API. Each test starts the API's router in the test process, on a MongoDB database of its own that it drops at the end, with OAuth on and Google and GitHub played by a mock server on `127.0.0.1`. The mock checks a code exchange as the providers do: the client credentials, the callback address, a code used once, and a PKCE verifier matching the challenge. Nothing leaves the machine. It needs MongoDB and Redis from the `PURESTAT__*` settings, not ClickHouse:
+
+```bash
+cargo test -p purestat-tests oauth_test
+```
+
+The state, PKCE and email-trust rules have unit tests of their own:
+
+```bash
+cargo test -p purestat-services --lib oauth
+```
+
+The SPA's OAuth helpers (`ui/src/utils/oauth.ts`) are tested with Bun:
+
+```bash
+cd ui && bun run test:unit
+```
+
 ### Run with logging output
 
 ```bash

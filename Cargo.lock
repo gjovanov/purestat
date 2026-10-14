@@ -2357,6 +2357,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "argon2",
+ "base64 0.22.1",
  "bson",
  "chrono",
  "clickhouse",
@@ -2376,6 +2377,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "subtle",
  "thiserror 2.0.21",
  "time",
  "tokio",
@@ -2390,13 +2392,16 @@ name = "purestat-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "bson",
  "chrono",
  "clickhouse",
+ "mongodb",
  "purestat-api",
  "purestat-config",
  "purestat-db",
  "purestat-services",
+ "redis",
  "reqwest",
  "serde",
  "serde_json",
