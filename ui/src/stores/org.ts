@@ -57,7 +57,11 @@ export const useOrgStore = defineStore('org', () => {
   }
 
   function selectOrg(orgId: string) {
-    currentOrg.value = orgs.value.find((o) => o.id === orgId) || null
+    // The current org can be known before the list holds it (a page opened
+    // directly): selecting it again must not clear it.
+    currentOrg.value =
+      orgs.value.find((o) => o.id === orgId) ||
+      (currentOrg.value?.id === orgId ? currentOrg.value : null)
   }
 
   return { orgs, currentOrg, loading, fetchOrgs, fetchOrg, createOrg, updateOrg, deleteOrg, selectOrg }
