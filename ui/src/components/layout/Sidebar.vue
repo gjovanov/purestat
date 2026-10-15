@@ -4,7 +4,7 @@
     <v-list density="compact" class="pa-2">
       <v-select
         v-model="selectedOrgId"
-        :items="orgStore.orgs"
+        :items="orgItems"
         item-title="name"
         item-value="id"
         density="compact"
@@ -95,11 +95,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAppStore } from '@/stores/app'
 import { useOrgStore } from '@/stores/org'
 import { useSiteStore } from '@/stores/site'
+import { orgOptions } from '@/utils/orgs'
 
+const appStore = useAppStore()
 const orgStore = useOrgStore()
 const siteStore = useSiteStore()
 const router = useRouter()
@@ -107,6 +110,18 @@ const router = useRouter()
 const drawer = defineModel<boolean>({ default: true })
 
 const selectedOrgId = ref<string | null>(null)
+
+// The current org stays among the items, so the picker shows its name even
+// before (or without) the list: see `orgOptions`.
+const orgItems = computed(() => orgOptions(orgStore.orgs, orgStore.currentOrg))
+
+// Only the org list page loads the list, so a page opened directly would
+// leave the picker with nothing to switch to.
+onMounted(() => {
+  if (appStore.isAuthenticated && orgStore.orgs.length === 0) {
+    orgStore.fetchOrgs().catch(() => {})
+  }
+})
 
 const routeParams = computed(() => ({
   orgId: orgStore.currentOrg?.id || '',
