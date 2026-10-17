@@ -398,6 +398,8 @@ SETTINGS index_granularity = 8192;
 
 Both ClickHouse tables have a **2-year TTL** applied at the partition level. ClickHouse automatically drops partitions older than 2 years during its background merge process.
 
+Deleting a site deletes its rows in both tables, with one mutation per table, and drops its visits still open in Redis ([API](api.md#delete-apiorgorg_idsitesite_id)). The deletion code lists the tables (`crates/services/src/analytics/purge.rs`), and a unit test fails when the schema gains a table the list does not cover.
+
 For MongoDB, the `invites` collection uses a TTL index on `expires_at` to automatically remove expired invitations.
 
 All other MongoDB data is retained indefinitely (user accounts, organizations, sites, etc.).

@@ -62,7 +62,7 @@ Two custom images:
 
 **Secrets.** `purestat-secret`, `clickhouse-secret`, `mongodb-secret` and `clickhouse-app-user` are Bitnami SealedSecrets under `k8s/base/sealed/`. Seal with `kubeseal --format yaml < secret.yaml` on a host with cluster access, and never commit the plain Secret.
 
-**ClickHouse users.** The api and tracker connect as `purestat_app`, which holds SELECT and INSERT on `purestat.*` only. Its users.d file and password come from the `clickhouse-app-user` SealedSecret. The user in `clickhouse-secret` is for administration only.
+**ClickHouse users.** The api and tracker connect as `purestat_app`, which holds SELECT and INSERT on `purestat.*`, plus ALTER DELETE on `purestat.events` and `purestat.sessions` so that deleting a site deletes its rows (`analytics::purge`; without the grant a site deletion answers 503 and keeps the site). A table added to the schema needs that grant too. Its users.d file and password come from the `clickhouse-app-user` SealedSecret. The nightly backup connects as `purestat_backup` (BACKUP on `purestat.*` only, its own SealedSecret). The user in `clickhouse-secret` is for administration only.
 
 **Caddyfile.** It lives in `k8s/base/caddy/Caddyfile` and is generated into a ConfigMap whose name carries a hash of its content, so an edit rolls the pod.
 

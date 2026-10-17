@@ -14,6 +14,9 @@ pub enum ApiError {
     Conflict(String),
     Internal(String),
     Validation(String),
+    /// A dependency refused or could not be reached, and nothing was changed;
+    /// the message says so and that a retry may work.
+    Unavailable(String),
 }
 
 #[derive(Serialize)]
@@ -41,6 +44,7 @@ impl IntoResponse for ApiError {
             ApiError::Validation(msg) => {
                 (StatusCode::UNPROCESSABLE_ENTITY, "validation", msg)
             }
+            ApiError::Unavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable", msg),
         };
 
         let body = ErrorResponse {

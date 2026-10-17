@@ -342,3 +342,17 @@ Redis is used as a cache and for rate limiting. It does not need to be backed up
 | MongoDB | Daily | 30 days |
 | ClickHouse | Weekly | 90 days |
 | Redis | N/A | N/A |
+
+A backup keeps the rows of a site deleted after it was taken, until the backup itself expires. If your privacy policy promises deletion within a period, keep backups for less than that.
+
+## Deleting a Site
+
+Deleting a site deletes its rows in ClickHouse ([API](api.md#delete-apiorgorg_idsitesite_id)). If the API connects to ClickHouse as a restricted user, that user needs `ALTER DELETE` on the tables, besides `SELECT` and `INSERT`:
+
+```sql
+GRANT SELECT, INSERT ON purestat.* TO purestat_app;
+GRANT ALTER DELETE ON purestat.events TO purestat_app;
+GRANT ALTER DELETE ON purestat.sessions TO purestat_app;
+```
+
+Without it, deleting a site answers `503` and keeps the site.

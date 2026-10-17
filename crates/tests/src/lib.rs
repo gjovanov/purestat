@@ -19,6 +19,8 @@ mod org_test;
 #[cfg(test)]
 mod site_test;
 #[cfg(test)]
+mod site_delete_test;
+#[cfg(test)]
 mod goal_test;
 #[cfg(test)]
 mod funnel_test;

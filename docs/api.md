@@ -431,6 +431,10 @@ Update site settings. Requires `owner` or `admin` role.
 
 Delete site and all associated analytics data. Requires `owner` or `admin` role.
 
+The site's goals and funnels go with it, and so do its rows in ClickHouse: an `ALTER TABLE … DELETE` mutation on `events` and on `sessions`, plus the visits still open in Redis. ClickHouse removes the rows in the background, so the answer (`204`) comes once the deletion is submitted; `system.mutations` shows its progress. If ClickHouse refuses the deletion or cannot be reached, the answer is `503` and nothing is deleted, the site included; try again later.
+
+A site created before sites got ClickHouse ids of their own can share its id with sites created in the same second. Deleting it removes only the rows its own hostnames account for (the events on a hostname that is its and no other site's, and the visits made of those events). The other sites keep their rows, and rows on a host no site counts stay.
+
 ### Goals
 
 #### GET /api/org/{org_id}/site/{site_id}/goal

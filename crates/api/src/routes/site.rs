@@ -1,6 +1,9 @@
+use std::time::Duration;
+
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
+use purestat_services::analytics::purge::SiteRows;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
@@ -114,6 +117,11 @@ pub async fn update(
     Ok(Json(site_to_response(&site)))
 }
 
+/// Deletes the site, its goals and funnels, and its rows in ClickHouse
+/// (`purge`). The rows go first: a ClickHouse that refuses the deletion
+/// leaves the site as it was, rather than leaving rows no site maps to any
+/// more. ClickHouse removes them in the background; the answer comes once
+/// the deletion is submitted.
 pub async fn delete(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -122,12 +130,69 @@ pub async fn delete(
     let org_oid = parse_oid(&org_id)?;
     let site_oid = parse_oid(&site_id)?;
     ensure_admin(&state, org_oid, auth.user_id).await?;
-    ensure_site_in_org(&state, org_oid, site_oid).await?;
+    let site = ensure_site_in_org(&state, org_oid, site_oid).await?;
+
+    let sharers = state.sites.sharing_clickhouse_id(&site).await?;
+    let rows = SiteRows::of(&site, &sharers);
+    if rows.is_empty() {
+        tracing::warn!(
+            site_id = rows.site_id,
+            "The site shares its ClickHouse id and has no hostname of its own: no rows to delete"
+        );
+    }
+    if let Err(e) = state.purge.submit(&rows).await {
+        tracing::error!(error = %e, site_id = rows.site_id, "Could not delete the site's rows in ClickHouse; the site is kept");
+        return Err(ApiError::Unavailable(
+            "The site's analytics could not be deleted, so the site was kept. Try again in a minute."
+                .to_string(),
+        ));
+    }
 
     state.goals.delete_all_for_site(site_oid).await?;
     state.funnels.delete_all_for_site(site_oid).await?;
     state.sites.delete(site_oid).await?;
+
+    delete_rows_in_flight(&state, &rows).await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// How long the deletion waits for an event flush in flight.
+const FLUSH_WAIT: Duration = Duration::from_secs(10);
+
+/// The rows that were on their way in while the site existed: its buffered
+/// events, and its live visits, which the sweeper writes 30 minutes after
+/// their last event. The site's Mongo row is gone, so ingest takes no more of
+/// its events; this drops the ones it holds, then deletes again for whatever
+/// was written since the first deletion. An event already past its site
+/// lookup when the row went can still slip through: that window is one
+/// request long. The buffer and the visits are this process's, and
+/// production runs one API process. Failures are logged; the site is
+/// deleted either way.
+async fn delete_rows_in_flight(state: &AppState, rows: &SiteRows) {
+    if rows.is_empty() {
+        return;
+    }
+    if let Err(e) = state
+        .ingest
+        .discard(|event| rows.owns_event(event), FLUSH_WAIT)
+        .await
+    {
+        tracing::warn!(error = %e, site_id = rows.site_id, "Could not drop a deleted site's buffered events");
+    }
+    // A visit records no hostname, so only a site that owns its id can tell
+    // its live visits apart.
+    if rows.owns_the_id()
+        && let Err(e) = state.session.discard_site(rows.site_id).await
+    {
+        tracing::warn!(error = %e, site_id = rows.site_id, "Could not drop a deleted site's live visits");
+    }
+    if let Err(e) = state.purge.submit(rows).await {
+        tracing::error!(
+            error = %e,
+            site_id = rows.site_id,
+            "Could not repeat a deleted site's ClickHouse deletion: rows written while it was deleted may remain"
+        );
+    }
 }
 
 fn site_to_response(site: &purestat_db::models::Site) -> SiteResponse {
