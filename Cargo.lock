@@ -2291,7 +2291,7 @@ dependencies = [
 
 [[package]]
 name = "purestat-api"
-version = "0.1.0"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "axum",
@@ -2326,7 +2326,7 @@ dependencies = [
 
 [[package]]
 name = "purestat-config"
-version = "0.1.0"
+version = "0.1.12"
 dependencies = [
  "config",
  "dotenvy",
@@ -2335,7 +2335,7 @@ dependencies = [
 
 [[package]]
 name = "purestat-db"
-version = "0.1.0"
+version = "0.1.12"
 dependencies = [
  "bson",
  "chrono",
@@ -2353,7 +2353,7 @@ dependencies = [
 
 [[package]]
 name = "purestat-services"
-version = "0.1.0"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2389,7 +2389,7 @@ dependencies = [
 
 [[package]]
 name = "purestat-tests"
-version = "0.1.0"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "axum",
@@ -2414,7 +2414,7 @@ dependencies = [
 
 [[package]]
 name = "purestat-tracker"
-version = "0.1.0"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "axum",

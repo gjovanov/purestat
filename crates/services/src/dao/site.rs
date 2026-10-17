@@ -93,6 +93,39 @@ impl SiteDao {
         }
     }
 
+    /// The other sites whose rows carry the same ClickHouse id as `site`.
+    /// Only sites from before `ch_id` can share one: those created in the
+    /// same second by one process derive the same id from their ObjectIds.
+    pub async fn sharing_clickhouse_id(&self, site: &Site) -> DaoResult<Vec<Site>> {
+        let id = site.clickhouse_id();
+        let prefix = id.to_be_bytes();
+        let mut low = [0u8; 12];
+        let mut high = [0xffu8; 12];
+        low[..8].copy_from_slice(&prefix);
+        high[..8].copy_from_slice(&prefix);
+        // `ch_id: null` matches a missing ch_id too: the cases where
+        // `Site::clickhouse_id` falls back to the ObjectId.
+        let candidates = self
+            .base
+            .find_many(
+                doc! {
+                    "$or": [
+                        { "ch_id": id as i64 },
+                        {
+                            "ch_id": null,
+                            "_id": { "$gte": ObjectId::from_bytes(low), "$lte": ObjectId::from_bytes(high) },
+                        },
+                    ]
+                },
+                None,
+            )
+            .await?;
+        Ok(candidates
+            .into_iter()
+            .filter(|other| other.id != site.id && other.clickhouse_id() == id)
+            .collect())
+    }
+
     pub async fn find_by_org(&self, org_id: ObjectId) -> DaoResult<Vec<Site>> {
         self.base
             .find_many(doc! { "org_id": org_id }, Some(doc! { "created_at": -1 }))

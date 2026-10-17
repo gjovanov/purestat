@@ -4,6 +4,7 @@ pub mod geo;
 pub mod ingest;
 pub mod journey;
 pub mod privacy;
+pub mod purge;
 pub mod query;
 pub mod realtime;
 pub mod scope;

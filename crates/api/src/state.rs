@@ -4,6 +4,7 @@ use purestat_config::Settings;
 use purestat_services::analytics::geo::GeoService;
 use purestat_services::analytics::ingest::IngestService;
 use purestat_services::analytics::privacy::PrivacyEngine;
+use purestat_services::analytics::purge::PurgeService;
 use purestat_services::analytics::query::QueryService;
 use purestat_services::analytics::realtime::RealtimeService;
 use purestat_services::analytics::session::SessionService;
@@ -34,6 +35,8 @@ pub struct AppState {
     pub email: Option<Arc<EmailService>>,
     pub ingest: Arc<IngestService>,
     pub query: Arc<QueryService>,
+    /// Deletes a deleted site's rows in ClickHouse (routes::site::delete).
+    pub purge: Arc<PurgeService>,
     pub realtime: Arc<RealtimeService>,
     pub export: Arc<ExportService>,
     pub stripe: Arc<StripeService>,
@@ -80,6 +83,7 @@ impl AppState {
         ingest.start_flush_timer(settings.tracker.flush_interval_ms);
 
         let query = Arc::new(QueryService::new(ch.clone()));
+        let purge = Arc::new(PurgeService::new(ch.clone()));
         let realtime = Arc::new(RealtimeService::new(ch.clone()));
         let export = Arc::new(ExportService::new(ch.clone()));
         let stripe = Arc::new(StripeService::new(settings.stripe.clone()));
@@ -120,6 +124,7 @@ impl AppState {
             email,
             ingest,
             query,
+            purge,
             realtime,
             export,
             stripe,

@@ -64,6 +64,10 @@ pub struct SessionService {
     redis: redis::aio::ConnectionManager,
     ch_client: Client,
     session_timeout_minutes: u64,
+    /// Held by a sweep from its read of Redis to its delete of the keys it
+    /// flushed, and by `discard_site`: a deleted site's visit is either
+    /// flushed before the discard or never.
+    sweep_lock: tokio::sync::Mutex<()>,
 }
 
 impl SessionService {
@@ -76,7 +80,72 @@ impl SessionService {
             redis,
             ch_client,
             session_timeout_minutes,
+            sweep_lock: tokio::sync::Mutex::new(()),
         }
+    }
+
+    /// Drops the live visits of a deleted site, whose ClickHouse id no other
+    /// site has (`purge::SiteRows::owns_the_id`), instead of letting the
+    /// sweeper write them: a visit reaches ClickHouse 30 minutes after its
+    /// last event, which is after the site and its rows are gone. Returns
+    /// how many visits were dropped.
+    ///
+    /// A sweep in progress finishes first and none starts until the keys are
+    /// gone. That holds within this process, the only one that sweeps.
+    pub async fn discard_site(&self, site_id: u64) -> Result<usize, SessionError> {
+        let _sweep = self.sweep_lock.lock().await;
+        let mut conn = self.redis.clone();
+        let mut doomed: Vec<String> = Vec::new();
+        let mut visits = 0;
+
+        let mut cursor: u64 = 0;
+        loop {
+            let (next_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg("purestat:s:*")
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut conn)
+                .await?;
+            for key in keys {
+                if let Some(json) = conn.get::<_, Option<String>>(&key).await?
+                    && let Ok(state) = serde_json::from_str::<SessionState>(&json)
+                    && state.site_id == site_id
+                {
+                    doomed.push(key);
+                    visits += 1;
+                }
+            }
+            cursor = next_cursor;
+            if cursor == 0 {
+                break;
+            }
+        }
+
+        // The visitor lookups point at those visits.
+        let pattern = format!("purestat:vs:{site_id}:*");
+        let mut cursor: u64 = 0;
+        loop {
+            let (next_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(&pattern)
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut conn)
+                .await?;
+            doomed.extend(keys);
+            cursor = next_cursor;
+            if cursor == 0 {
+                break;
+            }
+        }
+
+        for key in &doomed {
+            conn.del::<_, ()>(key).await?;
+        }
+        Ok(visits)
     }
 
     /// Process an event and return the session_id to use.
@@ -166,6 +235,7 @@ impl SessionService {
     }
 
     async fn sweep_expired_sessions(&self) -> Result<(), SessionError> {
+        let _sweep = self.sweep_lock.lock().await;
         let mut conn = self.redis.clone();
         let timeout_ms = (self.session_timeout_minutes * 60 * 1000) as i64;
         let now = chrono::Utc::now().timestamp_millis();

@@ -14,6 +14,8 @@ pub enum IngestError {
     ClickHouse(#[from] clickhouse::error::Error),
     #[error("Buffer full")]
     BufferFull,
+    #[error("A flush was still in flight")]
+    FlushInFlight,
 }
 
 /// How many events wait in memory at most while ClickHouse is unreachable.
@@ -155,6 +157,37 @@ impl IngestService {
         }
     }
 
+    /// Drops the buffered events `doomed` selects (a deleted site's) and
+    /// returns how many. It acts once no flush is in flight, waiting up to
+    /// `timeout` for one: a flush in flight may be writing such events, and a
+    /// failed one puts them back in the buffer. So when this returns `Ok`,
+    /// every such event that was ever buffered is either written already or
+    /// gone.
+    pub async fn discard(
+        &self,
+        doomed: impl Fn(&Event) -> bool,
+        timeout: Duration,
+    ) -> Result<usize, IngestError> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            {
+                // A flush raises `flushing` before it takes the buffer and
+                // lowers it after any put-back, so with the buffer locked and
+                // the flag down, none holds an unwritten event.
+                let mut buf = self.buffer.lock().await;
+                if !self.flushing.load(Ordering::Acquire) {
+                    let before = buf.len();
+                    buf.retain(|event| !doomed(event));
+                    return Ok(before - buf.len());
+                }
+            }
+            if Instant::now() >= deadline {
+                return Err(IngestError::FlushInFlight);
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
     /// Events waiting to be written.
     pub async fn buffered(&self) -> usize {
         self.buffer.lock().await.len()
@@ -277,6 +310,54 @@ mod tests {
             "the three oldest went"
         );
         assert_eq!(svc.dropped.load(Ordering::Relaxed), 3);
+    }
+
+    #[tokio::test]
+    async fn discard_drops_only_the_events_it_selects() {
+        let svc = IngestService::new(unreachable(), 1_000);
+        for p in ["/keep-1", "/drop-1", "/keep-2", "/drop-2"] {
+            svc.ingest(event(p)).await.unwrap();
+        }
+        let dropped = svc
+            .discard(|e| e.path.starts_with("/drop"), Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(dropped, 2);
+        assert_eq!(
+            paths(&svc).await,
+            ["/keep-1", "/keep-2"],
+            "the rest keep their order"
+        );
+    }
+
+    #[tokio::test]
+    async fn discard_waits_for_a_flush_in_flight() {
+        let svc = Arc::new(IngestService::new(unreachable(), 1_000));
+        svc.ingest(event("/drop")).await.unwrap();
+        // A flush holds the batch: discarding now could miss its events.
+        svc.flushing.store(true, Ordering::Release);
+        assert!(matches!(
+            svc.discard(|_| true, Duration::from_millis(60)).await,
+            Err(IngestError::FlushInFlight)
+        ));
+        assert_eq!(
+            svc.buffered().await,
+            1,
+            "nothing dropped while the flush was in flight"
+        );
+
+        let waiting = {
+            let svc = Arc::clone(&svc);
+            tokio::spawn(async move { svc.discard(|_| true, Duration::from_secs(5)).await })
+        };
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        svc.flushing.store(false, Ordering::Release);
+        assert_eq!(
+            waiting.await.unwrap().unwrap(),
+            1,
+            "dropped once the flush was done"
+        );
+        assert_eq!(svc.buffered().await, 0);
     }
 
     #[tokio::test]
